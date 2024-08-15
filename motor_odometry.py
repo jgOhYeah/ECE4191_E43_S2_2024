@@ -23,10 +23,12 @@ right_count = 0
 def left_encoder_tick():
     global left_count
     left_count += 1
+    print(f"Left Encoder Tick: {left_count}")
 
 def right_encoder_tick():
     global right_count
     right_count += 1
+    print(f"Right Encoder Tick: {right_count}")
 
 left_encoder.when_pressed = left_encoder_tick
 right_encoder.when_pressed = right_encoder_tick
@@ -55,11 +57,20 @@ def rotate(angle):
     target_angle = theta + angle
     while abs(theta - target_angle) > 0.01:
         if angle > 0:
-            left_motor.forward()
-            right_motor.backward()
+            left_motor.forward(0.5)
+            right_motor.backward(0.5)
         else:
-            left_motor.backward()
-            right_motor.forward()
+            left_motor.backward(0.5)
+            right_motor.forward(0.5)
+
+
+        # Check encoder states and counts
+        left_state = left_encoder.is_pressed
+        right_state = right_encoder.is_pressed
+        print(f"Left Encoder A State: {left_state}, Right Encoder A State: {right_state}")
+        print(f"Left Encoder Tick Count: {left_count}, Right Encoder Tick Count: {right_count}")
+        
+        
         update_odometry()
         time.sleep(0.01)
     left_motor.stop()
@@ -69,8 +80,16 @@ def move_forward(distance):
     # Move robot forward by a specific distance
     start_x, start_y = x, y
     while math.sqrt((x - start_x)**2 + (y - start_y)**2) < distance:
-        left_motor.forward()
-        right_motor.forward()
+        left_motor.forward(0.5)
+        right_motor.forward(0.5)
+
+        # Check encoder states and counts
+        left_state = left_encoder.is_pressed
+        right_state = right_encoder.is_pressed
+        print(f"Left Encoder A State: {left_state}, Right Encoder A State: {right_state}")
+        print(f"Left Encoder Tick Count: {left_count}, Right Encoder Tick Count: {right_count}")
+        
+
         update_odometry()
         time.sleep(0.01)
     left_motor.stop()

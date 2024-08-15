@@ -4,8 +4,8 @@ from gpiozero import Motor, LED
 import time
 
 
-left_a, left_b, left_en = 5, 6, 13
-right_a, right_b, right_en = 16, 7, 12
+left_a, left_b, left_en = 7, 16, 12
+right_a, right_b, right_en = 5, 6, 13
 
 # Set enable pins high.
 left_enable = LED(left_en)

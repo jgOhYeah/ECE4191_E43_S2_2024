@@ -38,6 +38,7 @@ ticks_per_revolution = 48
 x, y, theta = 0.0, 0.0, 0.0
 
 def update_odometry():
+    print("updating odometry")
     global x, y, theta, left_count, right_count
     left_distance = (2 * math.pi * wheel_radius * left_count) / ticks_per_revolution
     right_distance = (2 * math.pi * wheel_radius * right_count) / ticks_per_revolution
@@ -51,6 +52,7 @@ def update_odometry():
     print(f"Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
 
 def rotate(angle):
+    print("rotating")
     # Rotate robot by a specific angle (radians)
     target_angle = theta + angle
     while abs(theta - target_angle) > 0.01:
@@ -66,6 +68,7 @@ def rotate(angle):
     right_motor.stop()
 
 def move_forward(distance):
+    print("moving forwards")
     # Move robot forward by a specific distance
     start_x, start_y = x, y
     while math.sqrt((x - start_x)**2 + (y - start_y)**2) < distance:
@@ -77,6 +80,7 @@ def move_forward(distance):
     right_motor.stop()
 
 def return_to_origin():
+    print("returning to origin")
     # Calculate distance and angle to origin
     distance_to_origin = math.sqrt(x**2 + y**2)
     angle_to_origin = math.atan2(y, x) - theta

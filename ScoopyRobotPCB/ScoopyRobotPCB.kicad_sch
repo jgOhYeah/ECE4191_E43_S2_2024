@@ -8858,7 +8858,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1.5k"
+		(property "Value" "2.2k"
 			(at 369.57 66.0399 0)
 			(effects
 				(font
@@ -9199,7 +9199,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "2.2k"
+		(property "Value" "1.k"
 			(at 360.68 133.3499 0)
 			(effects
 				(font
@@ -9551,7 +9551,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1.5k"
+		(property "Value" "2.2k"
 			(at 360.68 66.0399 0)
 			(effects
 				(font
@@ -12162,7 +12162,6 @@
 		)
 	)
 	(symbol
-		(lib_name "Custom:L298N_Motor_Driver_H_Bridge")
 		(lib_id "Custom:L298N_Motor_Driver_H_Bridge")
 		(at 312.42 222.25 90)
 		(unit 1)
@@ -12754,7 +12753,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1.5k"
+		(property "Value" "1k"
 			(at 369.57 120.6499 0)
 			(effects
 				(font
@@ -12806,7 +12805,6 @@
 		)
 	)
 	(symbol
-		(lib_name "Custom:L298N_Motor_Driver_H_Bridge")
 		(lib_id "Custom:L298N_Motor_Driver_H_Bridge")
 		(at 311.15 85.09 90)
 		(unit 1)
@@ -12927,7 +12925,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "2.2k"
+		(property "Value" "1k"
 			(at 369.57 133.3499 0)
 			(effects
 				(font
@@ -13555,7 +13553,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1.5k"
+		(property "Value" "1k"
 			(at 360.68 120.6499 0)
 			(effects
 				(font

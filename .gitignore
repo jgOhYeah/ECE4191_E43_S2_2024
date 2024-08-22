@@ -195,20 +195,5 @@ fp-info-cache
 
 # Output files
 layout/out
-CV/Dataset/tennis- cardboard.v1i.tfrecord/README.dataset.txt
-CV/Dataset/tennis- cardboard.v1i.tfrecord/README.roboflow.txt
-CV/Dataset/tennis- cardboard.v1i.tfrecord/test/cardboard-tennis_label_map.pbtxt
-CV/Dataset/tennis- cardboard.v1i.tfrecord/test/cardboard-tennis.tfrecord
-CV/Dataset/tennis- cardboard.v1i.tfrecord/train/cardboard-tennis_label_map.pbtxt
-CV/Dataset/tennis- cardboard.v1i.tfrecord/train/cardboard-tennis.tfrecord
-CV/Dataset/tennis- cardboard.v1i.tfrecord/valid/cardboard-tennis_label_map.pbtxt
-CV/Dataset/tennis- cardboard.v1i.tfrecord/valid/cardboard-tennis.tfrecord
-CV/Dataset/images/README.dataset.txt
-CV/Dataset/images/README.roboflow.txt
-CV/Dataset/images/test/cardboard-tennis_label_map.pbtxt
-CV/Dataset/images/test/cardboard-tennis.tfrecord
-CV/Dataset/images/train/cardboard-tennis_label_map.pbtxt
-CV/Dataset/images/train/cardboard-tennis.tfrecord
-CV/Dataset/images/valid/cardboard-tennis_label_map.pbtxt
-CV/Dataset/images/valid/cardboard-tennis.tfrecord
-CV/Dataset/tennisball_cardboard_dataset.zip
+images/
+

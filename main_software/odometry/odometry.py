@@ -295,7 +295,7 @@ def initialize_mqtt(vehicle: Vehicle):
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
         TopicMethodPair(MQTTTopics.MOVE_TO_HEADING, move_to_heading_callback),
-        TopicMethodPair(MQTTTopics.RETURN_TO_ORIGIN, return_to_origin_callback),
+        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, return_to_origin_callback),
     ]
     
     # Setup MQTT with the defined topic-method pairs

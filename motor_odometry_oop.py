@@ -24,7 +24,6 @@ class Side:
         self.direction = 1
         self.target_steps = 0
         self.encoder.when_rotated = self._are_we_there_yet
-    
 
     def drive_to_steps(self, steps:int, speed:float=1):
         """Drives the motor to a given number of steps.
@@ -96,38 +95,43 @@ class Vehicle:
     
     def demo(self, speed=0.2):
         print("Demo")
-        print("Formwards 1")
+        # print("Forwards 1")
         self.left.drive_to_angle_relative(5*2*math.pi, speed)
         self.right.drive_to_angle_relative(5*2*math.pi, speed)
-        time.sleep(10)
+        # time.sleep(10)
 
-        print("Turn 1")
-        self.left.drive_to_angle_relative(3*2*math.pi, speed)
-        self.left.drive_to_angle_relative(-3*2*math.pi, speed)
-        time.sleep(10)
+        # print("Turn 1")
+        # self.left.drive_to_angle_relative(3*2*math.pi, speed)
+        # self.left.drive_to_angle_relative(-3*2*math.pi, speed)
+        # time.sleep(10)
 
-        print("Forwards 3")
-        self.left.drive_to_angle_relative(5*2*math.pi, speed)
-        self.right.drive_to_angle_relative(5*2*math.pi, speed)
-        time.sleep(10)
+        # print("Forwards 3")
+        # self.left.drive_to_angle_relative(5*2*math.pi, speed)
+        # self.right.drive_to_angle_relative(5*2*math.pi, speed)
+        # time.sleep(10)
 
-        print("Backwards 4")
-        self.left.drive_to_angle_relative(-5*2*math.pi, speed)
-        self.right.drive_to_angle_relative(-5*2*math.pi, speed)
-        time.sleep(10)
+        # print("Backwards 4")
+        # self.left.drive_to_angle_relative(-5*2*math.pi, speed)
+        # self.right.drive_to_angle_relative(-5*2*math.pi, speed)
+        # time.sleep(10)
 
-        print("Turn 5")
-        self.left.drive_to_angle_relative(-3*2*math.pi, speed)
-        self.right.drive_to_angle_relative(3*2*math.pi, speed)
-        time.sleep(10)
+        # print("Turn 5")
+        # self.left.drive_to_angle_relative(-3*2*math.pi, speed)
+        # self.right.drive_to_angle_relative(3*2*math.pi, speed)
+        # time.sleep(10)
 
-        print("Backwards 6")
-        self.left.drive_to_angle_relative(-5*2*math.pi, speed)
-        self.right.drive_to_angle_relative(-5*2*math.pi, speed)
-        time.sleep(10)
+        # print("Backwards 6")
+        # self.left.drive_to_angle_relative(-5*2*math.pi, speed)
+        # self.right.drive_to_angle_relative(-5*2*math.pi, speed)
+        # time.sleep(10)
 
-        print("Done")
-        time.sleep(15)
+        # print("Done")
+        # time.sleep(15)
+
+        while True:
+            if self.left._are_we_there_yet() and self.right._are_we_there_yet():
+                break
+            time.sleep(0.1)
 
 
 if __name__ == "__main__":

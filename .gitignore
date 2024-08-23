@@ -196,4 +196,5 @@ fp-info-cache
 # Output files
 layout/out
 images/
+checkpoints/
 

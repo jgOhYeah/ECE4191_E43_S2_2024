@@ -10,7 +10,24 @@ from flask import Flask, Response
 import paho.mqtt.client as mqtt
 import json
 from scipy.optimize import curve_fit 
-from collections import deque   
+from collections import deque  
+
+## Acknowledgements
+## This code is based on the following repos:
+## https://github.com/EdjeElectronics/TensorFlow-Lite-Object-Detection-on-Android-and-Raspberry-Pi
+## the code was influenced by TF_lite_detection_webcam.py which is located in the archives folder. 
+## modifications were made to the code to add NMS and estimate of the distance of the object.
+## the code was also modified to stream the video from a webcam for Headless Raspberry Pi configurations. 
+## Ability to communicate with MQTT was added to send the detections to a MQTT broker (Control Systems)
+## 
+## NOTE: When viewing the video stream, user may see poor performance and frames may take several seconds to refresh.
+## If the local host link is not accessed, then the frames will be much faster.
+## 
+## NOTE: For certain models the detections may not be accurate when handling distant objects, this can be improved 
+## lowering the threshold for the detection algorithm.
+
+
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -23,14 +40,17 @@ mqtt_client = mqtt.Client()
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 mqtt_client.loop_start()
 
-ball_detections = []
-last_publish_time = time.time()
 
 # Global variables
 outputFrame = None
 lock = threading.Lock()
+ball_detections = []
+last_publish_time = time.time()
+
 
 class VideoStream:
+    ## Define VideoStream class to handle streaming of video from webcam in separate processing thread
+    ## Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
     def __init__(self, resolution=(640, 480), framerate=30):
         self.stream = cv2.VideoCapture(0)
         self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
@@ -59,6 +79,10 @@ class VideoStream:
         self.stopped = True
 
 class estimate_distance:
+    ## Calclating the Approximate distance of the object by using the power law function. 
+    ## The detection algorithm can be improved by providing more accurate correlations between the 
+    ## known distances and the modified pixel area of the object. 
+    # Modified pixel area = pixel area * aspect ratio. 
     def __init__(self, smoothing_factor=0.2, max_history=10):
         # Updated calibration points
         self.known_distances = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
@@ -120,7 +144,7 @@ parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed u
 args = parser.parse_args()
 
 MODEL_NAME = args.modeldir
-
+# some stuff from the github repo in Acknowledgements 
 GRAPH_NAME = args.graph
 LABELMAP_NAME = args.labels
 min_conf_threshold = float(args.threshold)
@@ -177,6 +201,11 @@ else: # This is a TF1 model
 videostream = None  # Declare videostream as a global variable
 
 def NMS(boxes,scores,threshold):
+    # Non-Maximum Suppression (NMS) algorithm to remove overlapping bounding boxes
+    # inputs: 
+    #   boxes: array of bounding boxes (shape: num_boxes x 4)
+    #   scores: array of confidence scores (shape: num_boxes x 1)
+    #   threshold: threshold for non-maximum suppression (int)
     boxes = boxes.astype(float)
     x1 = boxes[:,1]
     y1 = boxes[:,0]
@@ -187,6 +216,8 @@ def NMS(boxes,scores,threshold):
     keep = []
 
     while order.size > 0:
+        # comparison of the confidence scores of the bounding boxes and removing the overlapping ones 
+        # with the lowest confidence score
         i = order[0] 
         keep.append(i)
 
@@ -205,6 +236,7 @@ def NMS(boxes,scores,threshold):
 
 
 def detect_object():
+    # Function to detect the object in the video stream
     global outputFrame,lock, videostream, ball_detections, last_publish_time
     videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
     time.sleep(1)
@@ -216,6 +248,7 @@ def detect_object():
 
     while True:
         # Setting Min and Max Box areas to get rid of false positives 
+        # these can be changed to suit the needs of the project by observing the results of false positives
         MIN_BOX_AREA = 50
         MAX_BOX_AREA = 400000
         

@@ -9,7 +9,8 @@ import importlib.util
 from flask import Flask, Response
 import paho.mqtt.client as mqtt
 import json
-
+from scipy.optimize import curve_fit 
+from collections import deque   
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -56,6 +57,50 @@ class VideoStream:
     
     def stop(self):
         self.stopped = True
+
+class estimate_distance:
+    def __init__(self, smoothing_factor=0.2, max_history=10):
+        # Updated calibration points
+        self.known_distances = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
+        self.known_pixel_areas = [282089, 72090, 26404, 14040, 8460, 5698, 4000, 3100, 2401, 2150, 1225, 875, 360]
+        
+        self.popt = self._fit_function()
+        self.smoothing_factor = smoothing_factor
+        self.distance_history = deque(maxlen=max_history)
+
+    def _estimation_function(self, x, a, b, c):
+        return a * np.power(x, b) + c
+
+    def _fit_function(self):
+        popt, _ = curve_fit(self._estimation_function, self.known_pixel_areas, self.known_distances, p0=[1, -0.5, 0])
+        return popt
+
+    def estimate_distance(self, pixel_area):
+        # Estimate the distance using the fitted function
+        estimated_distance = self._estimation_function(pixel_area, *self.popt)
+
+        # Implement some bounds to handle extreme values
+        if estimated_distance < 0:
+            estimated_distance = 0
+        elif estimated_distance > 2.5:  # Assuming we don't expect distances beyond 2.5m
+            estimated_distance = 2.5
+
+        # Apply smoothing
+        if self.distance_history:
+            smoothed_distance = (self.smoothing_factor * estimated_distance + 
+                                 (1 - self.smoothing_factor) * self.distance_history[-1])
+        else:
+            smoothed_distance = estimated_distance
+
+        self.distance_history.append(smoothed_distance)
+        
+        return smoothed_distance
+
+    def print_calibration(self):
+        print("Calibration Points:")
+        for dist, area in zip(self.known_distances, self.known_pixel_areas):
+            estimated = self._estimation_function(area, *self.popt)
+            print(f"Actual: {dist:.2f}m, Area: {area}, Estimated: {estimated:.2f}m")
 
 #Defining and parsing input arguments you can add to further customise the mode
 parser = argparse.ArgumentParser()
@@ -167,6 +212,8 @@ def detect_object():
     frame_rate_calc = 1
     freq = cv2.getTickFrequency()
 
+    distance_estimator = estimate_distance()
+
     while True:
         # Setting Min and Max Box areas to get rid of false positives 
         MIN_BOX_AREA = 50
@@ -219,7 +266,7 @@ def detect_object():
                         # print(f"Original box: {boxes[i]}")
                         # print(f"Frame shape: {frame.shape}")
                         # print(f"Calculated box: xmin={xmin}, ymin={ymin}, xmax={xmax}, ymax={ymax}")
-
+                        estimated_distance = distance_estimator.estimate_distance(modified_area)
 
 
 
@@ -234,9 +281,12 @@ def detect_object():
 
                         # sending the info through MQTT
                         ball_detections.append({
-                            "coords": [center_x,center_y],
+                            "xmin,xmax": [xmin,xmax],
+                            "ymin,ymax": [ymin,ymax],
+                            "center point": [center_x,center_y],
                             "confidence": confidence,
-                            "area": modified_area
+                            "area": modified_area,
+                            "distance": estimated_distance
                         })
 
 
@@ -250,7 +300,7 @@ def detect_object():
 
 
 
-                        print(f"Boundary Box at: x: [{xmin},{xmax}], y: [{ymin},{ymax}], area: {box_area}, confidence: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}")
+                        print(f"Boundary Box at: x: [{xmin},{xmax}], y: [{ymin},{ymax}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
 
         cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
 

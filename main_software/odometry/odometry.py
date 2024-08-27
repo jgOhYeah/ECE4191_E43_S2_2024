@@ -39,7 +39,7 @@ left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
 wheel_base = 0.20  # distance between wheels in meters
-ticks_per_revolution = 48 # 
+ticks_per_revolution = 48*10 # 
 
 class PIController:
     def __init__(self, kp, ki, sample_time):
@@ -162,17 +162,45 @@ class Vehicle:
             time.sleep(0.1)  # Adjust the sleep duration as necessary
     
     def update_odometry(self):
-        global x, y, theta, left_count, right_count
+        # global x, y, theta, left_count, right_count
         print("update_odometry: self.left.encoder.steps", self.left.encoder.steps)
         print("update_odometry: self.right.encoder.steps", self.right.encoder.steps)
-        left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
-        right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
-        distance = (left_distance + right_distance) / 2.0
+        # left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
+        # right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
+        # distance = (left_distance + right_distance) / 2.0
+        # delta_theta = (right_distance - left_distance) / wheel_base
+        # x += distance * math.cos(theta + delta_theta / 2.0)
+        # y += distance * math.sin(theta + delta_theta / 2.0)
+        # theta += delta_theta
+        # logger.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
+        global x, y, theta, left_count, right_count
+
+        # Calculate the distance traveled by each wheel
+        delta_left = self.left.encoder.steps - left_count
+        delta_right = self.right.encoder.steps - right_count
+
+        # Update the counts
+        left_count = self.left.encoder.steps
+        right_count = self.right.encoder.steps
+
+        # Convert steps to distance
+        left_distance = delta_left * (2 * math.pi * wheel_radius) / ticks_per_revolution
+        right_distance = delta_right * (2 * math.pi * wheel_radius) / ticks_per_revolution
+
+        # Calculate the change in orientation
         delta_theta = (right_distance - left_distance) / wheel_base
-        x += distance * math.cos(theta + delta_theta / 2.0)
-        y += distance * math.sin(theta + delta_theta / 2.0)
+
+        # Calculate the change in position
+        average_distance = (left_distance + right_distance) / 2
+        x += average_distance * math.cos(theta + delta_theta / 2)
+        y += average_distance * math.sin(theta + delta_theta / 2)
         theta += delta_theta
-        logger.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
+
+        # Normalize theta to be within -pi to pi
+        theta = (theta + math.pi) % (2 * math.pi) - math.pi
+
+        # Logging for debugging
+        print(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
     
     def move_to_heading(self, heading: float, revolutions: int, speed: float = 0.5):
         global theta

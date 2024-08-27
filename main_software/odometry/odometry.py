@@ -103,7 +103,9 @@ class Side:
             steps (int): The number of steps (absolute, not relative).
             speed (float, optional): How fast to move. Defaults to 1.
         """
+        print()
         print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
+        print()
         self.direction = 1  # Allows comparisons in the opposite direction if needed.
         self.target_steps = steps
 
@@ -126,7 +128,6 @@ class Side:
                 self.motor.stop()
                 break
             time.sleep(0.01)  
-
 
     def drive_to_angle(self, angle:float, speed:float=1):
         """Drives the motor to a given absolute angle.
@@ -190,7 +191,7 @@ class Vehicle:
     def odometry_loop(self):
         while True:
             self.update_odometry()
-            time.sleep(0.1)  # Adjust the sleep duration as necessary
+            time.sleep(1)  # Adjust the sleep duration as necessary
     
     def update_odometry(self):
         # global x, y, theta, left_count, right_count

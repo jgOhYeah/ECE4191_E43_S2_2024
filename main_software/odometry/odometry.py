@@ -39,7 +39,7 @@ left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
 wheel_base = 0.20  # distance between wheels in meters
-ticks_per_revolution = 48 # 
+ticks_per_revolution = 48*10 # 
 
 class PIController:
     def __init__(self, kp, ki, sample_time):
@@ -56,6 +56,35 @@ class PIController:
         output = proportional + integral
         self.previous_error = error
         return output
+    
+class MotorControlThread(threading.Thread):
+    def __init__(self, side):
+        super().__init__()
+        self.side = side
+        self.daemon = True  # Daemon thread exits when the main program exits
+
+    def run(self):
+        while True:
+            if self.side.target_steps is not None:
+                current_steps = self.side.encoder.steps
+                print(f"{self.side.name} current_steps: {current_steps}")
+
+                if (self.side.direction == 1 and current_steps >= self.side.target_steps) or \
+                   (self.side.direction == -1 and current_steps <= self.side.target_steps):
+                    
+                    print(f"{self.side.name} Target reached: {current_steps} steps")
+                    self.side.motor.stop()
+                    # Optional: Add a small delay before resetting target_steps to handle rapid repeated commands
+                    time.sleep(0.1)
+                    self.side.target_steps = None
+                else:
+                    self.side.movement_complete = False
+            else:
+                # Check if target_steps needs to be set again for the next command
+                if self.side.target_steps is None and self.side.direction is not None:
+                    self.side.movement_complete = True
+            time.sleep(0.01)
+
 
 class Side:
     def __init__(self, motor_a:int, motor_b:int, motor_en:int, enc_a:int, enc_b:int, name:str=""):
@@ -69,14 +98,16 @@ class Side:
             enc_b (int): Pin
         """
         self.motor = Motor(motor_a, motor_b, enable=motor_en, pwm=True)
-        self.encoder = RotaryEncoder(enc_a, enc_b, max_steps=0)
+        self.encoder = RotaryEncoder(enc_a, enc_b,max_steps=0)
         self.name = name
         self.direction = 1
         self.target_steps = 0
         self.movement_complete = False  # Flag to indicate movement completion
         self.encoder.when_rotated = self._are_we_there_yet
+        self.thread = MotorControlThread(self)
+        self.thread.start()
 
-    def drive_to_steps(self, steps:int, speed:float=1):
+    def drive_to_steps(self, steps: int, speed: float = 1):
         """Drives the motor to a given number of steps.
 
         Args:
@@ -84,18 +115,16 @@ class Side:
             speed (float, optional): How fast to move. Defaults to 1.
         """
         print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
-        self.direction = 1 # Allows comparisons in the opposite direction if needed.
         self.target_steps = steps
 
-        # TODO: Soft start and stop.
         if steps > self.encoder.steps:
             # Need to go forwards
             self.motor.forward(speed)
+            self.direction = 1
         else:
             # Need to go backwards
             self.motor.backward(speed)
             self.direction = -1
-
 
     def drive_to_angle(self, angle:float, speed:float=1):
         """Drives the motor to a given absolute angle.
@@ -135,11 +164,14 @@ class Side:
     def target_reached(self) -> bool:
         #check if the motors have reached their target
         return self.movement_complete
+    
+    def stop(self):
+        self.motor.stop()
 
 class Vehicle:
     def __init__(self):
-        self.left = Side(5, 6, 13, 19, 26, "left")
-        self.right = Side(7, 16, 12, 20, 21, "right")
+        self.left = Side( 6, 5, 13, 19, 26, "left")
+        self.right = Side(16, 7, 12, 20, 21, "right")
 
         self.odometry_thread = threading.Thread(target=self.odometry_loop)
         self.odometry_thread.daemon = True  # Daemon thread exits when the main program exits
@@ -159,22 +191,50 @@ class Vehicle:
     def odometry_loop(self):
         while True:
             self.update_odometry()
-            time.sleep(0.1)  # Adjust the sleep duration as necessary
+            time.sleep(1)  # Adjust the sleep duration as necessary
     
     def update_odometry(self):
-        global x, y, theta, left_count, right_count
+        # global x, y, theta, left_count, right_count
         print("update_odometry: self.left.encoder.steps", self.left.encoder.steps)
         print("update_odometry: self.right.encoder.steps", self.right.encoder.steps)
-        left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
-        right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
-        distance = (left_distance + right_distance) / 2.0
+        # left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
+        # right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
+        # distance = (left_distance + right_distance) / 2.0
+        # delta_theta = (right_distance - left_distance) / wheel_base
+        # x += distance * math.cos(theta + delta_theta / 2.0)
+        # y += distance * math.sin(theta + delta_theta / 2.0)
+        # theta += delta_theta
+        # logger.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
+        global x, y, theta, left_count, right_count
+
+        # Calculate the distance traveled by each wheel
+        delta_left = self.left.encoder.steps - left_count
+        delta_right = self.right.encoder.steps - right_count
+
+        # Update the counts
+        left_count = self.left.encoder.steps
+        right_count = self.right.encoder.steps
+
+        # Convert steps to distance
+        left_distance = delta_left * (2 * math.pi * wheel_radius) / ticks_per_revolution
+        right_distance = delta_right * (2 * math.pi * wheel_radius) / ticks_per_revolution
+
+        # Calculate the change in orientation
         delta_theta = (right_distance - left_distance) / wheel_base
-        x += distance * math.cos(theta + delta_theta / 2.0)
-        y += distance * math.sin(theta + delta_theta / 2.0)
+
+        # Calculate the change in position
+        average_distance = (left_distance + right_distance) / 2
+        x += average_distance * math.cos(theta + delta_theta / 2)
+        y += average_distance * math.sin(theta + delta_theta / 2)
         theta += delta_theta
-        logger.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
+
+        # Normalize theta to be within -pi to pi
+        theta = (theta + math.pi) % (2 * math.pi) - math.pi
+
+        # Logging for debugging
+        print(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
     
-    def move_to_heading(self, heading: float, revolutions: int, speed: float = 0.5):
+    def move_to_heading(self, heading: float, revolutions: int, speed: float = 0.05):
         global theta
 
         # Normalize the heading to the range [-π, π]
@@ -186,7 +246,12 @@ class Vehicle:
 
         # Safety checks for steps (assuming maximum safe steps as max_safe_steps)
         max_safe_steps = ticks_per_revolution * 10  # Define a safe limit for revolutions
+        print("revolutions", revolutions)
+        print("ticks_per_revolution", ticks_per_revolution)
+        
         steps = int(revolutions * ticks_per_revolution)
+        print("steps",steps)
+        
         if abs(steps) > max_safe_steps:
             raise ValueError("move_to_heading: Requested steps exceed the maximum safe range.")
         
@@ -197,15 +262,16 @@ class Vehicle:
             self.record_movement('move_to_heading: turn', delta_theta)
 
         # Set PWM values based on PI control outputs
-        self.left.motor.forward(speed + heading_adjustment)
-        self.right.motor.forward(speed - heading_adjustment)
+        # self.left.motor.forward(speed + heading_adjustment)
+        # self.right.motor.forward(speed - heading_adjustment)
 
         # Move to the desired heading
         self.left.drive_to_angle_relative(delta_theta, speed)
         self.right.drive_to_angle_relative(-delta_theta, speed)
-        self.wait_for_movement()
+        # self.wait_for_movement()
 
         # Move forward by the given number of revolutions
+        print("giving this many steps to drive_to_steps", steps)
         self.left.drive_to_steps(steps, speed)
         self.right.drive_to_steps(steps, speed)
         self.wait_for_movement()
@@ -218,7 +284,7 @@ class Vehicle:
             time.sleep(0.1)
 
     # def return_to_origin(self, speed:float=0.5):
-      """Uses odometry to return to the origin. - use for final """
+    #  """Uses odometry to return to the origin. - use for final """
     #     global x, y, theta
     #     distance_to_origin = math.sqrt(x**2 + y**2)
     #     angle_to_origin = math.atan2(y, x) - theta
@@ -261,7 +327,7 @@ class Vehicle:
         self.update_odometry()
 
 # Callback functions for MQTT topics
-def parse_and_move(client, message, move_function):
+def parse_and_move(arg):
     """Example of published message on topic of robot/move_to_heading with payload:
     {
     "heading": 90,
@@ -272,21 +338,21 @@ def parse_and_move(client, message, move_function):
     - receives the message, triggering move_to_heading_callback
     - callback parses the payload and instructs robot to turn a 90-degree heading and move forwards by 2 revolutions
     """
-    payload = json.loads(message.payload)
+    payload = arg
     heading = payload.get("heading", 0)
     revolutions = payload.get("revolutions", 0)
-    move_function(heading, revolutions)
+    vehicle.move_to_heading(heading, revolutions)
 
     # Print the received message and parsed values
-    print(f"parse_and_move: Received message: {message.payload}")
+    # print(f"parse_and_move: Received message: {message.payload}")
     print(f"parse_and_move: Parsed heading: {heading}")
     print(f"parse_and_move: Parsed revolutions: {revolutions}")
 
-def move_to_heading_callback(client, userdata, message):
-    parse_and_move(client, message, vehicle.move_to_heading)
+# def move_to_heading_callback(arg):
+#     parse_and_move(client, message, vehicle.move_to_heading)
 
-def return_to_origin_callback(client, userdata, message):
-    vehicle.return_to_origin()
+# def return_to_origin_callback(client, userdata, message):
+#     vehicle.return_to_origin()
 
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
@@ -294,8 +360,8 @@ def initialize_mqtt(vehicle: Vehicle):
     
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
-        TopicMethodPair(MQTTTopics.MOVE_TO_HEADING, move_to_heading_callback),
-        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, return_to_origin_callback),
+        TopicMethodPair(MQTTTopics.ODOMETRY_MOVE, parse_and_move),
+        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, vehicle.return_to_origin),
     ]
     
     # Setup MQTT with the defined topic-method pairs

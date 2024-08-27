@@ -327,7 +327,7 @@ def detect_object():
                         })
 
 
-                        print(f"Boundary Box at: x: [{xmin},{xmax}], y: [{ymin},{ymax}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
+                        print(f"Boundary Box at: x: [{xmin_norm},{xmax_norm}], y: [{ymin_norm},{ymax_norm}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
 
                         
                         

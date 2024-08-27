@@ -218,7 +218,7 @@ class Vehicle:
             time.sleep(0.1)
 
     # def return_to_origin(self, speed:float=0.5):
-      """Uses odometry to return to the origin. - use for final """
+    #  """Uses odometry to return to the origin. - use for final """
     #     global x, y, theta
     #     distance_to_origin = math.sqrt(x**2 + y**2)
     #     angle_to_origin = math.atan2(y, x) - theta
@@ -261,7 +261,7 @@ class Vehicle:
         self.update_odometry()
 
 # Callback functions for MQTT topics
-def parse_and_move(client, message, move_function):
+def parse_and_move(arg):
     """Example of published message on topic of robot/move_to_heading with payload:
     {
     "heading": 90,
@@ -272,21 +272,21 @@ def parse_and_move(client, message, move_function):
     - receives the message, triggering move_to_heading_callback
     - callback parses the payload and instructs robot to turn a 90-degree heading and move forwards by 2 revolutions
     """
-    payload = json.loads(message.payload)
+    payload = arg
     heading = payload.get("heading", 0)
     revolutions = payload.get("revolutions", 0)
-    move_function(heading, revolutions)
+    vehicle.move_to_heading(heading, revolutions)
 
     # Print the received message and parsed values
-    print(f"parse_and_move: Received message: {message.payload}")
+    # print(f"parse_and_move: Received message: {message.payload}")
     print(f"parse_and_move: Parsed heading: {heading}")
     print(f"parse_and_move: Parsed revolutions: {revolutions}")
 
-def move_to_heading_callback(client, userdata, message):
-    parse_and_move(client, message, vehicle.move_to_heading)
+# def move_to_heading_callback(arg):
+#     parse_and_move(client, message, vehicle.move_to_heading)
 
-def return_to_origin_callback(client, userdata, message):
-    vehicle.return_to_origin()
+# def return_to_origin_callback(client, userdata, message):
+#     vehicle.return_to_origin()
 
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
@@ -294,8 +294,8 @@ def initialize_mqtt(vehicle: Vehicle):
     
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
-        TopicMethodPair(MQTTTopics.MOVE_TO_HEADING, move_to_heading_callback),
-        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, return_to_origin_callback),
+        TopicMethodPair(MQTTTopics.ODOMETRY_MOVE, parse_and_move),
+        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, vehicle.return_to_origin),
     ]
     
     # Setup MQTT with the defined topic-method pairs

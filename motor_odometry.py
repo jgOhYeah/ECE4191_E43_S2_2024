@@ -1,18 +1,27 @@
-from gpiozero import Motor
+#!/usr/bin/env python3
+from gpiozero import Motor, LED
 from gpiozero import Button
 import time
 import math
 
 # Motor and Encoder setup (as before)
-motor1_a, motor1_b = 4, 14
-motor2_a, motor2_b = 17, 18
-left_motor = Motor(motor1_a, motor1_b)
-right_motor = Motor(motor2_a, motor2_b)
+left_a, left_b, left_en = 7, 16, 12
+right_a, right_b, right_en = 5, 6, 13
 
-encoder_left_a = 5
-encoder_left_b = 6
-encoder_right_a = 22
-encoder_right_b = 27
+# Set enable pins high.
+left_enable = LED(left_en)
+right_enable = LED(right_en)
+left_enable.on()
+right_enable .on()
+
+print(f"About to start motors on pins {left_a}, {left_b}, {right_a}, {right_b}")
+left_motor = Motor(left_a, left_b)
+right_motor = Motor(right_a, right_b)
+
+encoder_left_a = 20
+encoder_left_b = 21
+encoder_right_a = 19
+encoder_right_b = 26
 
 left_encoder = Button(encoder_left_a)
 right_encoder = Button(encoder_right_a)
@@ -23,10 +32,12 @@ right_count = 0
 def left_encoder_tick():
     global left_count
     left_count += 1
+    print(f"Left Encoder Tick: {left_count}")
 
 def right_encoder_tick():
     global right_count
     right_count += 1
+    print(f"Right Encoder Tick: {right_count}")
 
 left_encoder.when_pressed = left_encoder_tick
 right_encoder.when_pressed = right_encoder_tick
@@ -38,6 +49,7 @@ ticks_per_revolution = 48
 x, y, theta = 0.0, 0.0, 0.0
 
 def update_odometry():
+    print("updating odometry")
     global x, y, theta, left_count, right_count
     left_distance = (2 * math.pi * wheel_radius * left_count) / ticks_per_revolution
     right_distance = (2 * math.pi * wheel_radius * right_count) / ticks_per_revolution
@@ -51,32 +63,52 @@ def update_odometry():
     print(f"Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
 
 def rotate(angle):
+    print("rotating")
     # Rotate robot by a specific angle (radians)
     target_angle = theta + angle
     while abs(theta - target_angle) > 0.01:
         if angle > 0:
-            left_motor.forward()
-            right_motor.backward()
+            left_motor.forward(0.5)
+            right_motor.backward(0.5)
         else:
-            left_motor.backward()
-            right_motor.forward()
+            left_motor.backward(0.5)
+            right_motor.forward(0.5)
+
+
+        # Check encoder states and counts
+        left_state = left_encoder.is_pressed
+        right_state = right_encoder.is_pressed
+        print(f"Left Encoder A State: {left_state}, Right Encoder A State: {right_state}")
+        print(f"Left Encoder Tick Count: {left_count}, Right Encoder Tick Count: {right_count}")
+        
+        
         update_odometry()
         time.sleep(0.01)
     left_motor.stop()
     right_motor.stop()
 
 def move_forward(distance):
+    print("moving forwards")
     # Move robot forward by a specific distance
     start_x, start_y = x, y
     while math.sqrt((x - start_x)**2 + (y - start_y)**2) < distance:
-        left_motor.forward()
-        right_motor.forward()
+        left_motor.forward(0.5)
+        right_motor.forward(0.5)
+
+        # Check encoder states and counts
+        left_state = left_encoder.is_pressed
+        right_state = right_encoder.is_pressed
+        print(f"Left Encoder A State: {left_state}, Right Encoder A State: {right_state}")
+        print(f"Left Encoder Tick Count: {left_count}, Right Encoder Tick Count: {right_count}")
+        
+
         update_odometry()
         time.sleep(0.01)
     left_motor.stop()
     right_motor.stop()
 
 def return_to_origin():
+    print("returning to origin")
     # Calculate distance and angle to origin
     distance_to_origin = math.sqrt(x**2 + y**2)
     angle_to_origin = math.atan2(y, x) - theta
@@ -95,8 +127,8 @@ def return_to_origin():
 
 # Example usage:
 # Step 1: Move forward 10 cm (0.1 meters)
-print("Moving forward 10 cm")
-move_forward(0.1)
+print("Moving forward 20 cm")
+move_forward(0.2)
 
 # Step 2: Turn 90 degrees (π/2 radians)
 print("Turning 90 degrees")

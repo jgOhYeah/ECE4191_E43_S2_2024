@@ -2,7 +2,7 @@
 """Uses the rotatry encoders and any other sensor data to calculate current position, velocity and heading.
 Waits for MQTT message to move and actions it."""
 # Typing and pretty stuff
-from typing import List
+from typing import List, Tuple
 
 # Import the helper functions in defines.py
 import sys
@@ -38,8 +38,8 @@ theta = 0.0
 left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
-wheel_base = 0.20  # distance between wheels in meters
-ticks_per_revolution = 48*10 # 
+wheel_base = 3.1*0.222  # distance between wheels in meters
+ticks_per_revolution = 19*47 # 
 
 class PIController:
     def __init__(self, kp, ki, sample_time):
@@ -67,16 +67,16 @@ class MotorControlThread(threading.Thread):
         while True:
             if self.side.target_steps is not None:
                 current_steps = self.side.encoder.steps
-                print(f"{self.side.name} current_steps: {current_steps}")
+                logging.debug(f"{self.side.name} current_steps: {current_steps}")
 
                 if (self.side.direction == 1 and current_steps >= self.side.target_steps) or \
                    (self.side.direction == -1 and current_steps <= self.side.target_steps):
-                    
-                    print(f"{self.side.name} Target reached: {current_steps} steps")
+                    # 
+                    logging.info(f"{self.side.name} Target reached: {current_steps} steps")
                     self.side.motor.stop()
                     # Optional: Add a small delay before resetting target_steps to handle rapid repeated commands
                     time.sleep(0.1)
-                    self.side.target_steps = None
+                    self.side.target_steps = 0
                 else:
                     self.side.movement_complete = False
             else:
@@ -104,19 +104,21 @@ class Side:
         self.target_steps = 0
         self.movement_complete = False  # Flag to indicate movement completion
         self.encoder.when_rotated = self._are_we_there_yet
-        self.thread = MotorControlThread(self)
-        self.thread.start()
 
-    def drive_to_steps(self, steps: int, speed: float = 1):
+        # TODO
+        # self.thread = MotorControlThread(self)
+        # self.thread.start()
+
+    def _drive_to_steps(self, steps: int, speed: float = 1):
         """Drives the motor to a given number of steps.
 
         Args:
             steps (int): The number of steps (absolute, not relative).
             speed (float, optional): How fast to move. Defaults to 1.
         """
-        print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
+        logging.debug(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
+        self.movement_complete = False
         self.target_steps = steps
-
         if steps > self.encoder.steps:
             # Need to go forwards
             self.motor.forward(speed)
@@ -126,7 +128,7 @@ class Side:
             self.motor.backward(speed)
             self.direction = -1
 
-    def drive_to_angle(self, angle:float, speed:float=1):
+    def _drive_to_angle(self, angle:float, speed:float=1):
         """Drives the motor to a given absolute angle.
 
         Args:
@@ -134,9 +136,9 @@ class Side:
             speed (float, optional): How fast to move. Defaults to 1.
         """
 
-        self.drive_to_steps(self._angle_to_steps(angle), speed)
+        self._drive_to_steps(self._angle_to_steps(angle), speed)
 
-    def drive_to_angle_relative(self, angle:float, speed:float=1):
+    def _drive_to_angle_relative(self, angle:float, speed:float=1):
         """Drives the motor to a given angle relative to the current position.
 
         Args:
@@ -144,7 +146,28 @@ class Side:
             speed (float, optional): How fast to move. Defaults to 1.
         """
         abs_steps = self._angle_to_steps(angle) + self.encoder.steps
-        self.drive_to_steps(abs_steps, speed)
+        self._drive_to_steps(abs_steps, speed)
+
+    def drive_to_dist(self, dist:float, speed:float=1):
+        """Drives the motor to a given absolute distance.
+
+        Args:
+            distance (float): The number of m (absolute, not relative).
+            speed (float, optional): How fast to move. Defaults to 1.
+        """
+        self._drive_to_angle(self._dist_to_angle(dist), speed)
+
+    def drive_to_dist_relative(self, dist:float, speed:float=1):
+        """Drives the motor to a given distance relative to the current position.
+
+        Args:
+            distance (float): The number of m (relative, not absolute).
+            speed (float, optional): How fast to move. Defaults to 1.
+        """
+        self._drive_to_angle_relative(self._dist_to_angle(dist), speed)
+
+    def _dist_to_angle(self, dist:float) -> float:
+        return dist / wheel_radius
 
     def _angle_to_steps(self, angle:float) -> int:
         return int(angle/(2*math.pi) * ticks_per_revolution)
@@ -157,7 +180,7 @@ class Side:
         if distance_to_go < 0:
             # We got there. Stop
             self.motor.stop()
-            print("_are_we_there_yet: Motor stopped")
+            logging.debug(f"Motor stopped {distance_to_go=}")
             # TODO: Callback or something for when the motor is stopped.
             self.movement_complete = True  # Indicate that the movement is complete
 
@@ -173,13 +196,15 @@ class Vehicle:
         self.left = Side( 6, 5, 13, 19, 26, "left")
         self.right = Side(16, 7, 12, 20, 21, "right")
 
-        self.odometry_thread = threading.Thread(target=self.odometry_loop)
-        self.odometry_thread.daemon = True  # Daemon thread exits when the main program exits
-        self.odometry_thread.start()
+        # TODO
+        # self.odometry_thread = threading.Thread(target=self.odometry_loop)
+        # self.odometry_thread.daemon = True  # Daemon thread exits when the main program exits
+        # self.odometry_thread.start()
         
         # Initialize PI controllers for heading and distance control
-        self.heading_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
-        self.distance_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
+        # TODO
+        # self.heading_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
+        # self.distance_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
 
         # Initialize movement history stack - needed if returning to origin by reversing
         self.movement_history = []
@@ -195,8 +220,8 @@ class Vehicle:
     
     def update_odometry(self):
         # global x, y, theta, left_count, right_count
-        print("update_odometry: self.left.encoder.steps", self.left.encoder.steps)
-        print("update_odometry: self.right.encoder.steps", self.right.encoder.steps)
+        logging.debug("update_odometry: self.left.encoder.steps {self.left.encoder.steps}")
+        logging.debug("update_odometry: self.right.encoder.steps {self.right.encoder.steps}")
         # left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
         # right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
         # distance = (left_distance + right_distance) / 2.0
@@ -232,49 +257,35 @@ class Vehicle:
         theta = (theta + math.pi) % (2 * math.pi) - math.pi
 
         # Logging for debugging
-        print(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
+        logging.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
     
-    def move_to_heading(self, heading: float, revolutions: int, speed: float = 0.05):
-        global theta
-
-        # Normalize the heading to the range [-π, π]
-        delta_theta = heading - theta
-        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
-
+    def move_to_heading(self, heading: float, distance: int, speed: float = 0.3):
         # Use PI control to determine PWM adjustments
-        heading_adjustment = self.heading_controller.update(delta_theta)
+        # TODO
+        # heading_adjustment = self.heading_controller.update(delta_theta)
 
         # Safety checks for steps (assuming maximum safe steps as max_safe_steps)
-        max_safe_steps = ticks_per_revolution * 10  # Define a safe limit for revolutions
-        print("revolutions", revolutions)
-        print("ticks_per_revolution", ticks_per_revolution)
         
-        steps = int(revolutions * ticks_per_revolution)
-        print("steps",steps)
-        
-        if abs(steps) > max_safe_steps:
+        if abs(distance) > 100:
+            logging.error("Moving way too many revolutions.")
             raise ValueError("move_to_heading: Requested steps exceed the maximum safe range.")
         
         # Record movement - needed if reversing back to origin 
-        if revolutions != 0:
-            self.record_movement('move_to_heading: forward', revolutions)
-        if delta_theta != 0:
-            self.record_movement('move_to_heading: turn', delta_theta)
+        if heading != 0:
+            # Set heading
+            self.record_movement('move_to_heading: turn', heading)
+            left, right = self._calculate_heading(heading)
+            self.left.drive_to_dist_relative(left, speed)
+            self.right.drive_to_dist_relative(right, speed)
+            self.wait_for_movement()
 
-        # Set PWM values based on PI control outputs
-        # self.left.motor.forward(speed + heading_adjustment)
-        # self.right.motor.forward(speed - heading_adjustment)
 
-        # Move to the desired heading
-        self.left.drive_to_angle_relative(delta_theta, speed)
-        self.right.drive_to_angle_relative(-delta_theta, speed)
-        # self.wait_for_movement()
-
-        # Move forward by the given number of revolutions
-        print("giving this many steps to drive_to_steps", steps)
-        self.left.drive_to_steps(steps, speed)
-        self.right.drive_to_steps(steps, speed)
-        self.wait_for_movement()
+        if distance != 0:
+            # Move forward by the given number of revolutions
+            self.record_movement('move_to_heading: forward', distance)
+            self.left.drive_to_dist_relative(distance, speed)
+            self.right.drive_to_dist_relative(distance, speed)
+            self.wait_for_movement()
 
         # Update odometry after movement
         self.update_odometry()
@@ -282,6 +293,19 @@ class Vehicle:
     def wait_for_movement(self):
         while not (self.left.target_reached() and self.right.target_reached()):
             time.sleep(0.1)
+
+        logging.debug(f"Vehicle movement finished")
+    
+    def _calculate_heading(self, heading:float) -> Tuple[float, float]:
+        """Calculates the linear distance to move each wheel to turn to a specific heading.
+
+        Currently turns from the center of the axle.
+        
+        Takes a heading and converts it to motor distances (left, right).
+        """
+        dist = heading / math.pi * wheel_base / 2
+        return dist, -dist
+
 
     # def return_to_origin(self, speed:float=0.5):
     #  """Uses odometry to return to the origin. - use for final """
@@ -341,12 +365,13 @@ def parse_and_move(arg):
     payload = arg
     heading = payload.get("heading", 0)
     revolutions = payload.get("revolutions", 0)
-    vehicle.move_to_heading(heading, revolutions)
 
     # Print the received message and parsed values
     # print(f"parse_and_move: Received message: {message.payload}")
-    print(f"parse_and_move: Parsed heading: {heading}")
-    print(f"parse_and_move: Parsed revolutions: {revolutions}")
+    logging.info(f"parse_and_move: Parsed heading: {heading}")
+    logging.info(f"parse_and_move: Parsed revolutions: {revolutions}")
+
+    vehicle.move_to_heading(heading, revolutions)
 
 # def move_to_heading_callback(arg):
 #     parse_and_move(client, message, vehicle.move_to_heading)

@@ -39,7 +39,7 @@ left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
 wheel_base = 0.20  # distance between wheels in meters
-ticks_per_revolution = 48*10 # 
+ticks_per_revolution = 48 # 
 
 class PIController:
     def __init__(self, kp, ki, sample_time):
@@ -76,7 +76,27 @@ class Side:
         self.movement_complete = False  # Flag to indicate movement completion
         self.encoder.when_rotated = self._are_we_there_yet
 
-    def drive_to_steps(self, steps:int, speed:float=1):
+    # def drive_to_steps(self, steps:int, speed:float=1):
+    #     """Drives the motor to a given number of steps.
+
+    #     Args:
+    #         steps (int): The number of steps (absolute, not relative).
+    #         speed (float, optional): How fast to move. Defaults to 1.
+    #     """
+    #     print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
+    #     self.direction = 1 # Allows comparisons in the opposite direction if needed.
+    #     self.target_steps = steps
+        
+    #     print("steps", steps)
+    #     # TODO: Soft start and stop.
+    #     if steps > self.encoder.steps:
+    #         # Need to go forwards
+    #         self.motor.forward(speed)
+    #     else:
+    #         # Need to go backwards
+    #         self.motor.backward(speed)
+    #         self.direction = -1
+    def drive_to_steps(self, steps: int, speed: float = 1):
         """Drives the motor to a given number of steps.
 
         Args:
@@ -84,17 +104,28 @@ class Side:
             speed (float, optional): How fast to move. Defaults to 1.
         """
         print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
-        self.direction = 1 # Allows comparisons in the opposite direction if needed.
+        self.direction = 1  # Allows comparisons in the opposite direction if needed.
         self.target_steps = steps
 
-        # TODO: Soft start and stop.
+        # Determine the direction and start the motor
         if steps > self.encoder.steps:
             # Need to go forwards
             self.motor.forward(speed)
+            self.direction = 1
         else:
             # Need to go backwards
             self.motor.backward(speed)
             self.direction = -1
+
+        # Continuously check if the target steps have been reached
+        while True:
+            current_steps = self.encoder.steps
+            if (self.direction == 1 and current_steps >= self.target_steps) or \
+            (self.direction == -1 and current_steps <= self.target_steps):
+                print(f"Target reached: {current_steps} steps")
+                self.motor.stop()
+                break
+            time.sleep(0.01)  
 
 
     def drive_to_angle(self, angle:float, speed:float=1):

@@ -67,10 +67,12 @@ class MotorControlThread(threading.Thread):
         while True:
             if self.side.target_steps is not None:
                 current_steps = self.side.encoder.steps
-                print("current_steps", current_steps)
+                
+                print(f"{self.side.name} current_steps: {current_steps}")
                 if (self.side.direction == 1 and current_steps >= self.side.target_steps) or \
                    (self.side.direction == -1 and current_steps <= self.side.target_steps):
-                    print(f"Target reached: {current_steps} steps")
+                    
+                    print(f"{self.side.name} Target reached: {current_steps} steps")
                     self.side.motor.stop()
                     self.side.target_steps = None
             time.sleep(0.01)
@@ -104,6 +106,7 @@ class Side:
             steps (int): The number of steps (absolute, not relative).
             speed (float, optional): How fast to move. Defaults to 1.
         """
+        print("received steps in drive_to_steps:", steps)
         print(f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)")
         self.target_steps = steps
 
@@ -232,14 +235,14 @@ class Vehicle:
         delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
 
         # Use PI control to determine PWM adjustments
-        heading_adjustment = self.heading_controller.update(delta_theta)
+        # heading_adjustment = self.heading_controller.update(delta_theta)
 
         # Safety checks for steps (assuming maximum safe steps as max_safe_steps)
         max_safe_steps = ticks_per_revolution * 10  # Define a safe limit for revolutions
         print("revolutions", revolutions)
         print("ticks_per_revolution", ticks_per_revolution)
-        print("steps", steps)
         steps = int(revolutions * ticks_per_revolution)
+        print("steps", steps)
         
         if abs(steps) > max_safe_steps:
             raise ValueError("move_to_heading: Requested steps exceed the maximum safe range.")
@@ -251,19 +254,20 @@ class Vehicle:
             self.record_movement('move_to_heading: turn', delta_theta)
 
         # Set PWM values based on PI control outputs
-        self.left.motor.forward(speed + heading_adjustment)
-        self.right.motor.forward(speed - heading_adjustment)
+        # print(" Set PWM values based on PI control outputs")
+        # self.left.motor.forward(speed + heading_adjustment)
+        # self.right.motor.forward(speed - heading_adjustment)
 
         # Move to the desired heading
         self.left.drive_to_angle_relative(delta_theta, speed)
         self.right.drive_to_angle_relative(-delta_theta, speed)
-        self.wait_for_movement()
+        # self.wait_for_movement()
 
         # Move forward by the given number of revolutions
         print("giving this many steps to drive_to_steps", steps)
         self.left.drive_to_steps(steps, speed)
         self.right.drive_to_steps(steps, speed)
-        self.wait_for_movement()
+        # self.wait_for_movement()
 
         # Update odometry after movement
         self.update_odometry()

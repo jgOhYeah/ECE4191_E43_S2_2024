@@ -11,7 +11,7 @@ import paho.mqtt.client as mqtt
 import json
 from scipy.optimize import curve_fit 
 from collections import deque  
-
+import platform
 
 ## Acknowledgements
 ## This code is based on the following repos:
@@ -37,9 +37,13 @@ app = Flask(__name__)
 MQTT_BROKER = "localhost"  # or the IP of your Raspberry Pi if running on a different device
 MQTT_PORT = 1883
 MQTT_TOPIC = "/vision/balls"
-mqtt_client = mqtt.Client()
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-mqtt_client.loop_start()
+try:
+    mqtt_client = mqtt.Client()
+    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.loop_start()
+except Exception as e:
+    print(f"Failed to connect to MQTT broker: {e}")
+    mqtt_client = None
 
 
 # Global variables
@@ -49,31 +53,45 @@ lock = threading.Lock()
 
 
 class VideoStream:
-    ## Define VideoStream class to handle streaming of video from webcam in separate processing thread
-    ## Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
     def __init__(self, resolution=(640, 480), framerate=30):
-        self.stream = cv2.VideoCapture(0)
+        self.stream = cv2.VideoCapture(1, cv2.CAP_DSHOW)  # Use DirectShow on Windows
+        if not self.stream.isOpened():
+            raise ValueError("Could not open video stream")
         self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.stream.set(3, resolution[0])
         self.stream.set(4, resolution[1])
+        self.stream.set(cv2.CAP_PROP_FPS, framerate)
         self.stopped = False
-    
+        self.frame = None
+        self.is_pi = platform.system() == "Linux" and platform.machine().startswith("arm")
+
     def start(self):
-        threading.Thread(target=self.update, args=()).start()
+        if self.is_pi:
+            threading.Thread(target=self.update, args=()).start()
         return self
-    
+
     def update(self):
-        while True:
-            if self.stopped:
-                self.stream.release()
-                return
-            (self.grabbed, self.frame) = self.stream.read()
-    
+        while not self.stopped:
+            ret, frame = self.stream.read()
+            if ret:
+                self.frame = frame
+            else:
+                print("Failed to capture frame")
+
     def read(self):
-        return self.frame
-    
+        if self.is_pi:
+            return self.frame
+        else:
+            ret, frame = self.stream.read()
+            if not ret:
+                print("Failed to capture frame")
+                return None
+            return frame
+
     def stop(self):
         self.stopped = True
+        if self.stream.isOpened():
+            self.stream.release()
 
 class estimate_distance:
     ## Calclating the Approximate distance of the object by using the power law function. 
@@ -232,6 +250,7 @@ def NMS(boxes,scores,threshold):
 def normalize_coordinates(x, y, image_width, image_height):
     x_normalized = 2 * x / (image_width -1) - 1
     y_normalized = 2 * y / (image_height - 1) -1 
+    print(f"x: {x}, y: {y}, image_width: {image_width}, image_height: {image_height}")
     return x_normalized, y_normalized
 
 
@@ -257,6 +276,10 @@ def detect_object():
         t1 = cv2.getTickCount()
         #Grabbing frame from video stream
         frame1 = videostream.read()
+        if frame1 is None:
+            print("Failed to capture frame. Retrying...")
+            time.sleep(0.1)  # Wait a bit before trying again
+            continue
 
         frame = frame1.copy()
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -312,8 +335,6 @@ def detect_object():
                         label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
                         cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
                         cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
-
-                        
                         xmin_norm, ymin_norm = normalize_coordinates(xmin,ymin,frame.shape[1],frame.shape[0])
                         xmax_norm, ymax_norm = normalize_coordinates(xmax,ymax,frame.shape[1],frame.shape[0])
                         # sending the info through MQTT
@@ -326,13 +347,13 @@ def detect_object():
                             "distance": estimated_distance
                         })
 
+                        print(frame.shape[0])
+                        print(f"Boundary Box at: x: [{xmin_norm:.2f},{xmax_norm:.2f}] [{xmin:.2f},{xmax:.2f}], y: [{ymin_norm:.2f},{ymax_norm:.2f}] [{ymin:.2f},{ymax:.2f}], area: {box_area:.4f}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
 
-                        print(f"Boundary Box at: x: [{xmin},{xmax}], y: [{ymin},{ymax}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
-
                         
                         
-        mqtt_client.publish(MQTT_TOPIC, json.dumps(frame_ball_detections))
-                        
+        if mqtt_client:
+            mqtt_client.publish(MQTT_TOPIC, json.dumps(frame_ball_detections))                        
         cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
 
         # Calculate framerate

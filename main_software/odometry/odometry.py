@@ -112,6 +112,7 @@ class Side:
         # Determine the direction and start the motor
         if steps > self.encoder.steps:
             # Need to go forwards
+            print("go forwards")
             self.motor.forward(speed)
             self.direction = 1
         else:
@@ -120,6 +121,12 @@ class Side:
             self.direction = -1
 
         # Continuously check if the target steps have been reached
+        print()
+        print("steps", steps)
+        print("self.target_steps", self.target_steps)
+        print("current_steps", current_steps)
+        print()
+
         while True:
             current_steps = self.encoder.steps
             if (self.direction == 1 and current_steps >= self.target_steps) or \

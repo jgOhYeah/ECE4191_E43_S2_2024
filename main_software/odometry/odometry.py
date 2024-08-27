@@ -39,7 +39,7 @@ left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
 wheel_base = 0.20  # distance between wheels in meters
-ticks_per_revolution = 48 # 
+ticks_per_revolution = 48*10 # 
 
 class PIController:
     def __init__(self, kp, ki, sample_time):
@@ -246,7 +246,10 @@ class Vehicle:
 
         # Safety checks for steps (assuming maximum safe steps as max_safe_steps)
         max_safe_steps = ticks_per_revolution * 10  # Define a safe limit for revolutions
+        print("revolutions", revolutions)
+        print("ticks_per_revolution", ticks_per_revolution)
         steps = int(revolutions * ticks_per_revolution)
+        print("steps", steps)
         if abs(steps) > max_safe_steps:
             raise ValueError("move_to_heading: Requested steps exceed the maximum safe range.")
         

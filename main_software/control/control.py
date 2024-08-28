@@ -38,6 +38,37 @@ import math
 
 odometry_current = OdometryCurrent()
 
+class ContactChecker:
+    """Class for detecting if a contact has occurred based on distance."""
+    def __init__(self, callback, length:int=5, threshold:float=0.2):
+        self.history = []
+        self.callback = callback
+        self.length = length
+        self.threshold = threshold
+    
+    def update(self, distance:float) -> bool:
+        """Adds a new distance. Calls the callback if contact has occurred.
+
+        Args:
+            distance (float): The distance to add.
+        """
+        self.history.append(distance)
+        self.history = self.history[-self.length:] # only keep the last 5.
+        if self.is_contact():
+            logging.info("Contact has occurred")
+            self.callback({})
+            return True
+        else:
+            return False
+    
+    def is_contact(self) -> bool:
+        """Checks if the past few readings are close enough for a contact.
+
+        Returns:
+            bool: True if contact, False if not.
+        """
+        return (len(self.history) == self.length) and ((sum(self.history) / self.length) < self.threshold)
+
 def send_move_command(distance: float, heading: float):
     """Publishes a command to move.
 
@@ -121,27 +152,6 @@ def step_distance(ball:dict) -> float:
     calc_dist = scalar * distance
     return min(max(min_movement, calc_dist), max_movement)
 
-def handle_balls(args: List):
-    """Handles receiving a ball message.
-
-    Args:
-        args (ki): The data contained within
-    """
-    logging.debug("Received a handle balls message")
-    # Check if we actually need to action this message (looking for balls and not moving).
-    if state == State.FOLLOWING_BALL and not odometry_current.moving:
-        # In the correct state to care about the balls. Check if we actually have any balls.
-        if len(args) > 0:
-            # We have at least one ball to choose from.
-            ball = pick_ball(args)
-            # speed = 0.2
-            send_move_command(step_distance(ball), rotate_to_ball(ball))
-        else:
-            # We can't find any balls.
-            send_move_command(0, rotate_heading())
-    else:
-        logging.debug("Don't need to handle balls.")
-
 
 def handle_contact(args: dict):
     """Handles receiving a contact message.
@@ -154,12 +164,44 @@ def handle_contact(args: dict):
     state = State.RETURNING_HOME
     publish_mqtt(MQTTTopics.ODOMETRY_GO_HOME, {})
 
+contact = ContactChecker(handle_contact, 5, 0.2)
+
+def handle_balls(args: List):
+    """Handles receiving a ball message.
+
+    Args:
+        args (ki): The data contained within
+    """
+    logging.debug("Received a handle balls message")
+    # Check if we actually need to action this message (looking for balls and not moving).
+    if state == State.FOLLOWING_BALL:
+        # Pick a ball from the frame
+        if len(args) > 0:
+            # We have at least one ball to choose from.
+            ball = pick_ball(args)
+            logging.debug(f"Picked a ball {ball}")
+            if not contact.update(ball["distance"]) and not odometry_current.moving:
+                dist = step_distance(ball)
+                head = rotate_to_ball(ball)
+                logging.debug(f"Moving towards ball {dist=}, {head=}")
+                send_move_command(dist, head)
+        
+        elif not odometry_current.moving:
+            # Not moving, but can't find ball.
+            logging.debug("Can't find a ball and not moving")
+            send_move_command(0, rotate_heading())
+        else:
+            logging.debug("No balls, currently moving")
+    else:
+        logging.debug("Going home, don't need to handle balls.")
+
+
 if __name__ == "__main__":
     # Main code to run.
     setup_logging("log_control.txt", logging.DEBUG)
     method_pairs = [
         TopicMethodPair(MQTTTopics.VISION_BALLS, handle_balls),
-        TopicMethodPair(MQTTTopics.VISION_CONTACT, handle_contact),
+        # TopicMethodPair(MQTTTopics.VISION_CONTACT, handle_contact), # NOTE: Just doing contact in this control script for now.
         TopicMethodPair(MQTTTopics.ODOMETRY_CURRENT, odometry_current.receive)
     ]
     setup_mqtt(method_pairs)

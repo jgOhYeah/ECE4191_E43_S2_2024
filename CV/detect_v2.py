@@ -316,11 +316,12 @@ def detect_object():
                         
                         xmin_norm, ymin_norm = normalize_coordinates(xmin,ymin,frame.shape[1],frame.shape[0])
                         xmax_norm, ymax_norm = normalize_coordinates(xmax,ymax,frame.shape[1],frame.shape[0])
+                        xcenter_norm, ycenter_norm = normalize_coordinates(center_x, center_y, frame.shape[1],frame.shape[0])
                         # sending the info through MQTT
                         frame_ball_detections.append({
                             "xmin,xmax norm": [xmin_norm,xmax_norm],
                             "ymin,ymax": [ymin_norm,ymax_norm],
-                            "center point": [center_x,center_y],
+                            "center point": [xcenter_norm, ycenter_norm],
                             "confidence": confidence,
                             "area": modified_area,
                             "distance": estimated_distance

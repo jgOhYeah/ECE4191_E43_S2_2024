@@ -20,6 +20,7 @@ class MQTTTopics:
     ODOMETRY_MOVE = "/odometry/move"
     ODOMETRY_GO_HOME = "/odometry/go-home"
     ODOMETRY_CURRENT = "/odometry/current"
+    ODOMETRY_STATUS = "/odometry/status"
 
     # Stuff to do with the vision system.
     VISION_CONTACT = "/vision/contact"
@@ -128,6 +129,7 @@ class OdometryCurrent:
         self.position: List[float] = [0, 0]
         self.speed: float = 0
         self.angular_velocity: float = 0
+        self.moving: bool = False
 
     def publish(self):
         """Publishes the current object to MQTT."""
@@ -135,6 +137,7 @@ class OdometryCurrent:
         publish_mqtt(
             MQTTTopics.ODOMETRY_CURRENT,
             {
+                "moving": self.moving,
                 "heading": self.heading,
                 "position": self.position,
                 "speed": self.speed,
@@ -145,6 +148,7 @@ class OdometryCurrent:
     def receive(self, args:dict):
         """Populates the object with a received object."""
         logging.debug("Receiving latest positions.")
+        self.moving = args["moving"]
         self.heading = args["heading"]
         self.position = args["position"]
         self.speed = args["speed"]

@@ -15,6 +15,7 @@ from defines import (
     TopicMethodPair,
     mqtt_client,
     publish_mqtt,
+    OdometryCurrent
 )
 
 # Logging
@@ -267,6 +268,7 @@ class Vehicle:
 
         # Initialize movement history stack - needed if returning to origin by reversing
         self.movement_history = []
+        self.status = OdometryCurrent()
 
     def record_movement(self, mtype:MovementType, value:float):
         """Records a movement action and its value - needed if returning to origin by reversing.
@@ -353,6 +355,8 @@ class Vehicle:
         if heading != 0:
             # Set heading
             self.record_movement(MovementType.TURN, heading)
+            self.status.moving = True
+            self.status.publish()
             left, right = self._calculate_heading(heading)
             self.left.drive_to_dist_relative(left, speed)
             self.right.drive_to_dist_relative(right, speed)
@@ -362,12 +366,17 @@ class Vehicle:
         if distance != 0:
             # Move forward by the given number of revolutions
             self.record_movement(MovementType.MOVE, distance)
+            self.status.moving = True
+            self.status.publish()
             self.left.drive_to_dist_relative(distance, speed)
             self.right.drive_to_dist_relative(distance, speed)
             self.wait_for_movement()
 
         # Update odometry after movement
         self.update_odometry()
+
+        self.status.moving = False
+        self.status.publish()
     
     def is_moving(self) -> bool:
         """Checks if the platform is moving.
@@ -382,7 +391,6 @@ class Vehicle:
         """
         while self.is_moving():
             time.sleep(0.1)
-
         logging.debug(f"Vehicle movement finished")
     
     def _calculate_heading(self, heading:float) -> Tuple[float, float]:

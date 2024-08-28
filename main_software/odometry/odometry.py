@@ -492,18 +492,34 @@ class Vehicle:
         new_head, new_dist = cartesian_to_polar(x_move, y_move)
         return new_head, new_dist
 
-    def return_to_origin_direct(self, speed: float = 0.5):
+    def return_to_origin_direct(self, speed: float = 0.5, max_dist = 0.5):
         """Calculates the angle to face directly at the home position and drive directly to it.
 
         Args:
             speed (float, optional): The speed to drive at. Defaults to 0.5.
+            max_dist (float, optional) The maximum distance to drive at a time.
         """
         logging.info("Returning directly to origin")
         new_head, new_dist = self._calculate_origin_move(self.movement_history)
         
+        # Move back. Perform rotation and first leg of journey.
         logging.debug(f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})")
-        self.move_to_heading(new_head, new_dist)
-        self.wait_for_movement()
+        if new_dist > max_dist:
+            # The distance is too big to cover in one go. One of the motors runs slower than the other, so the dodgy way to fix this is to use many short hops to allow the direction / encoders to be mostly corrected at the end of each hop.
+            logging.debug(f"Moving back in multiple steps")
+            self.move_to_heading(new_head, max_dist)
+            new_dist -= max_dist
+            self.wait_for_movement()
+
+            # Move the rest of the way
+            while new_dist > 0:
+                self.move_to_heading(0, new_dist)
+                new_dist -= max_dist
+                self.wait_for_movement()
+        else:
+            logging.debug(f"Moving back in one go")
+            self.move_to_heading(new_head, new_dist)
+            self.wait_for_movement()
 
         # Rotate back to the original orientation
         logging.debug("Rotating to the original orientation")
@@ -567,7 +583,7 @@ def parse_and_move(arg):
     logging.info(f"parse_and_move: Parsed heading: {heading}")
     logging.info(f"parse_and_move: Parsed revolutions: {revolutions}")
 
-    vehicle.move_to_heading(heading, revolutions)
+    vehicle.move_to_heading(heading, revolutions, 0.3)
 
 def parse_and_return(arg):
     """Returns back to the starting point.
@@ -575,7 +591,7 @@ def parse_and_return(arg):
     Args:
         arg (JSON object): Currently unused.
     """
-    vehicle.return_to_origin()
+    vehicle.return_to_origin(0.8)
 
 # def move_to_heading_callback(arg):
 #     parse_and_move(client, message, vehicle.move_to_heading)

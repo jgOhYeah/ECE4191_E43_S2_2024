@@ -27,6 +27,9 @@ class MQTTTopics:
     VISION_BALLS = "/vision/balls"
     VISION_BOUNDARIES = "/vision/boundaries"
 
+    # Status
+    STATUS = "/status"
+
 
 @dataclass
 class TopicMethodPair:

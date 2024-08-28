@@ -42,7 +42,7 @@ theta = 0.0
 left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
-wheel_base = 3.0*0.222  # distance between wheels in meters
+wheel_base = 3.2*0.222  # distance between wheels in meters
 ticks_per_revolution = 19*47 # 
 
 class PIController:
@@ -513,7 +513,7 @@ class Vehicle:
 
             # Move the rest of the way
             while new_dist > 0:
-                self.move_to_heading(0, new_dist)
+                self.move_to_heading(0, max_dist)
                 new_dist -= max_dist
                 self.wait_for_movement()
         else:
@@ -591,7 +591,7 @@ def parse_and_return(arg):
     Args:
         arg (JSON object): Currently unused.
     """
-    vehicle.return_to_origin(0.8)
+    vehicle.return_to_origin(0.5)
 
 # def move_to_heading_callback(arg):
 #     parse_and_move(client, message, vehicle.move_to_heading)

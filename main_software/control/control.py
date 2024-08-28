@@ -163,8 +163,9 @@ def handle_contact(args: dict):
     global state
     state = State.RETURNING_HOME
     publish_mqtt(MQTTTopics.ODOMETRY_GO_HOME, {})
+    publish_mqtt(MQTTTopics.STATUS, {"state": "contacted, going home"})
 
-contact = ContactChecker(handle_contact, 5, 0.2)
+contact = ContactChecker(handle_contact, 3, 0.2)
 
 def handle_balls(args: List):
     """Handles receiving a ball message.
@@ -180,6 +181,7 @@ def handle_balls(args: List):
             # We have at least one ball to choose from.
             ball = pick_ball(args)
             logging.debug(f"Picked a ball {ball}")
+            publish_mqtt(MQTTTopics.STATUS, {"state": "ball found"})
             if not contact.update(ball["distance"]) and not odometry_current.moving:
                 dist = step_distance(ball)
                 head = rotate_to_ball(ball)
@@ -189,8 +191,10 @@ def handle_balls(args: List):
         elif not odometry_current.moving:
             # Not moving, but can't find ball.
             logging.debug("Can't find a ball and not moving")
+            publish_mqtt(MQTTTopics.STATUS, {"state": "no balls, moving"})
             send_move_command(0, rotate_heading())
         else:
+            publish_mqtt(MQTTTopics.STATUS, {"state": "no balls, currently moving"})
             logging.debug("No balls, currently moving")
     else:
         logging.debug("Going home, don't need to handle balls.")
@@ -205,4 +209,5 @@ if __name__ == "__main__":
         TopicMethodPair(MQTTTopics.ODOMETRY_CURRENT, odometry_current.receive)
     ]
     setup_mqtt(method_pairs)
+    publish_mqtt(MQTTTopics.STATUS, {"state": "control running"})
     mqtt_client.loop_forever()  # Use mqtt_client.loop_start()

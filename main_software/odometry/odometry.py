@@ -414,14 +414,8 @@ class Vehicle:
         # return self.return_to_origin_simple(speed)
         return self.return_to_origin_direct(speed)
 
-    def return_to_origin_direct(self, speed: float = 0.5):
-        """Calculates the angle to face directly at the home position and drive directly to it.
-
-        Args:
-            speed (float, optional): The speed to drive at. Defaults to 0.5.
-        """
-        logging.info("Returning directly to origin")
-        
+    def _calculate_origin_move(self, history) -> Tuple[float, float]:
+        """Calculates the relative heading and distance to return to the origin."""
         def polar_to_cartesian(heading:float, distance:float) -> Tuple[float, float]:
             """Converts polar coordinates into cartesian representation.
 
@@ -434,6 +428,7 @@ class Vehicle:
             """
             x = distance * math.cos(heading)
             y = distance * math.sin(heading)
+            return x, y
         
         def cartesian_to_polar(x:float, y:float) -> Tuple[float, float]:
             """Converts cartesian coordinates pack into polar representation.
@@ -470,12 +465,12 @@ class Vehicle:
         # State variables that acumulate movements
         x_move = 0
         y_move = 0
-        heading = 0
+        heading = math.pi # Turn around as the first step.
 
         # Process and sum movements
-        while self.movement_history:
-            movement = self.movement_history.pop()
-            logging.debug(f"{x_move=}, {y_move=}, {heading=}, About to reverse {movement}")
+        for i in range(len(history)-1, -1, -1):
+            movement = history[i]
+            logging.debug(f"{x_move=}, {y_move=}, {heading=}, About to reverse {i=} {movement}")
             if movement.type == MovementType.MOVE:
                 # Move this distance in the current heading.
                 x_change, y_change = polar_to_cartesian(heading, movement.value)
@@ -483,10 +478,21 @@ class Vehicle:
                 y_move += y_change
             elif movement.type == MovementType.TURN:
                 # Adjust the heading for the next movement.
-                heading += movement.value
+                heading -= movement.value # Opposite angles.
         
         # X and Y have the summed positions. Let's convert this back to polar and send it.
         new_head, new_dist = cartesian_to_polar(x_move, y_move)
+        return new_head, new_dist
+
+    def return_to_origin_direct(self, speed: float = 0.5):
+        """Calculates the angle to face directly at the home position and drive directly to it.
+
+        Args:
+            speed (float, optional): The speed to drive at. Defaults to 0.5.
+        """
+        logging.info("Returning directly to origin")
+        new_head, new_dist = self._calculate_origin_move()
+        
         logging.debug(f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})")
         self.move_to_heading(new_head, new_dist)
         self.wait_for_movement()

@@ -411,6 +411,96 @@ class Vehicle:
 
     # this one returns to origin by reversing actions
     def return_to_origin(self, speed: float = 0.5):
+        # return self.return_to_origin_simple(speed)
+        return self.return_to_origin_direct(speed)
+
+    def return_to_origin_direct(self, speed: float = 0.5):
+        """Calculates the angle to face directly at the home position and drive directly to it.
+
+        Args:
+            speed (float, optional): The speed to drive at. Defaults to 0.5.
+        """
+        logging.info("Returning directly to origin")
+        
+        def polar_to_cartesian(heading:float, distance:float) -> Tuple[float, float]:
+            """Converts polar coordinates into cartesian representation.
+
+            Args:
+                heading (float): The heading in radians.
+                distance (float): The distance in m.
+
+            Returns:
+                Tuple[float, float]: X and Y coordinates in m.
+            """
+            x = distance * math.cos(heading)
+            y = distance * math.sin(heading)
+        
+        def cartesian_to_polar(x:float, y:float) -> Tuple[float, float]:
+            """Converts cartesian coordinates pack into polar representation.
+
+            Args:
+                x (float): The x position in m.
+                y (float): The y position in m.
+
+            Returns:
+                Tuple[float, float]: The heading in radians and the distance in m.
+            """
+            # Calculate the heading (working from -pi to pi currently).
+            # I know this can be simplified based on signs of each function, but I can't be bothered :).
+            small_angle = math.atan(abs(y / x))
+            angle = 0
+            if x >= 0 and y >= 0:
+                # Quadrant 1
+                angle = small_angle
+            elif x < 0 and y >= 0:
+                # Quadrant 2
+                angle = math.pi - small_angle
+            elif x < 0 and y < 0:
+                # Quadrant 3
+                angle = -math.pi + small_angle
+            elif x >= 0 and y < 0:
+                # Quadrant 4
+                angle = -small_angle
+        
+            # Calculate the distance
+            distance = math.sqrt(x**2 + y**2)
+
+            return angle, distance
+        
+        # State variables that acumulate movements
+        x_move = 0
+        y_move = 0
+        heading = 0
+
+        # Process and sum movements
+        while self.movement_history:
+            movement = self.movement_history.pop()
+            logging.debug(f"{x_move=}, {y_move=}, {heading=}, About to reverse {movement}")
+            if movement.type == MovementType.MOVE:
+                # Move this distance in the current heading.
+                x_change, y_change = polar_to_cartesian(heading, movement.value)
+                x_move += x_change
+                y_move += y_change
+            elif movement.type == MovementType.TURN:
+                # Adjust the heading for the next movement.
+                heading += movement.value
+        
+        # X and Y have the summed positions. Let's convert this back to polar and send it.
+        new_head, new_dist = cartesian_to_polar(x_move, y_move)
+        logging.debug(f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})")
+        self.move_to_heading(new_head, new_dist)
+        self.wait_for_movement()
+
+        # Rotate back to the original orientation
+        logging.debug("Rotating to the original orientation")
+        self.left.drive_to_dist(0)
+        self.right.drive_to_dist(0)
+        self.wait_for_movement()
+
+        logging.debug(f"Done returning to home.")
+        self.update_odometry()
+
+    def return_to_origin_simple(self, speed: float = 0.5):
         """Reverse all previous movements to return to the origin."""
         logging.info("Returning to origin")
 

@@ -491,7 +491,7 @@ class Vehicle:
             speed (float, optional): The speed to drive at. Defaults to 0.5.
         """
         logging.info("Returning directly to origin")
-        new_head, new_dist = self._calculate_origin_move()
+        new_head, new_dist = self._calculate_origin_move(self.movement_history)
         
         logging.debug(f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})")
         self.move_to_heading(new_head, new_dist)
@@ -499,8 +499,8 @@ class Vehicle:
 
         # Rotate back to the original orientation
         logging.debug("Rotating to the original orientation")
-        self.left.drive_to_dist(0)
-        self.right.drive_to_dist(0)
+        # We are still going forwards when going back to origin, so steps in the motors are still incrementing. This means we can't use `self.right.drive_to_dist(0)``
+        self.move_to_heading(-new_head, 0)
         self.wait_for_movement()
 
         logging.debug(f"Done returning to home.")
@@ -552,7 +552,7 @@ def parse_and_move(arg):
     """
     payload = arg
     heading = payload.get("heading", 0)
-    revolutions = payload.get("revolutions", 0)
+    revolutions = payload.get("distance", 0)
 
     # Print the received message and parsed values
     # print(f"parse_and_move: Received message: {message.payload}")

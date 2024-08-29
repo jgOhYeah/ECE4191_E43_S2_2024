@@ -140,7 +140,7 @@ def step_distance(ball:dict) -> float:
     weight_sideways = 0.4 # Move less distance if the ball is on the edge of frame (1 = act more on this).
     weight_confidence = 0.3 # Move less distance if the confidence is low (1 = act more on this).
     min_movement = 0.01 # Minimum distance to move in m.
-    max_movement = 0.2 # Maximum distance to move in m.
+    max_movement = 0.4 # Maximum distance to move in m.
     distance_scale = 0.5 # What fraction of the calculated distance to the ball we should use.
 
     # Parameters measured

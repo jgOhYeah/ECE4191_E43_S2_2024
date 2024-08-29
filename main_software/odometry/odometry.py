@@ -42,7 +42,7 @@ theta = 0.0
 left_count = 0
 right_count = 0
 wheel_radius = 0.027  # in meters
-wheel_base = 3.2*0.222  # distance between wheels in meters
+wheel_base = 3.05*0.222  # distance between wheels in meters
 ticks_per_revolution = 19*47 # 
 
 class PIController:
@@ -396,7 +396,7 @@ class Vehicle:
     def _calculate_heading(self, heading:float) -> Tuple[float, float]:
         """Calculates the linear distance to move each wheel to turn to a specific heading.
 
-        Currently turns from the center of the axle.
+        Currently turns from speed center of the axle.
         
         Takes a heading and converts it to motor distances (left, right).
         """
@@ -418,7 +418,7 @@ class Vehicle:
     #     self.move_to_heading(-theta, 0, speed)  # Correct orientation
 
     # this one returns to origin by reversing actions
-    def return_to_origin(self, speed: float = 0.5):
+    def return_to_origin(self, speed: float = 1):
         # return self.return_to_origin_simple(speed)
         return self.return_to_origin_direct(speed)
 
@@ -492,7 +492,7 @@ class Vehicle:
         new_head, new_dist = cartesian_to_polar(x_move, y_move)
         return new_head, new_dist
 
-    def return_to_origin_direct(self, speed: float = 0.5, max_dist = 0.5):
+    def return_to_origin_direct(self, speed: float = 1, max_dist = 0.5):
         """Calculates the angle to face directly at the home position and drive directly to it.
 
         Args:
@@ -507,18 +507,18 @@ class Vehicle:
         if new_dist > max_dist:
             # The distance is too big to cover in one go. One of the motors runs slower than the other, so the dodgy way to fix this is to use many short hops to allow the direction / encoders to be mostly corrected at the end of each hop.
             logging.debug(f"Moving back in multiple steps")
-            self.move_to_heading(new_head, max_dist)
+            self.move_to_heading(new_head, max_dist, speed)
             new_dist -= max_dist
             self.wait_for_movement()
 
             # Move the rest of the way
             while new_dist > 0:
-                self.move_to_heading(0, max_dist)
+                self.move_to_heading(0, max_dist, speed)
                 new_dist -= max_dist
                 self.wait_for_movement()
         else:
             logging.debug(f"Moving back in one go")
-            self.move_to_heading(new_head, new_dist)
+            self.move_to_heading(new_head, new_dist, speed)
             self.wait_for_movement()
 
         # Rotate back to the original orientation
@@ -591,7 +591,8 @@ def parse_and_return(arg):
     Args:
         arg (JSON object): Currently unused.
     """
-    vehicle.return_to_origin(0.5)
+    vehicle.move_to_heading(0, -0.2, 0.3)
+    vehicle.return_to_origin(0.4)
 
 # def move_to_heading_callback(arg):
 #     parse_and_move(client, message, vehicle.move_to_heading)

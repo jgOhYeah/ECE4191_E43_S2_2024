@@ -121,6 +121,7 @@ class MotorSpeedController:
         self.target_speed = 0
         self.last_steps = 0
         self.last_time = 0
+        self.cur_speed = 0 # Store the current speed in case we are asked for it.
 
         # Motor and encoder hardware.
         self.motor = motor
@@ -199,6 +200,7 @@ class MotorSpeedController:
         """
         speed = (steps - self.last_steps) / timestep
         self.last_steps = steps
+        self.cur_speed = speed
         return speed
 
     def run(self, loop_delay: float, hook: Callable[[float, int], None] = None) -> None:
@@ -228,6 +230,14 @@ class MotorSpeedController:
         """
         thread = threading.Thread(target=self.run, args=(loop_delay, hook))
         thread.start()
+    
+    def get_speed(self) -> float:
+        """Gets the current speed of the motor.
+
+        Returns:
+            float: The current speed in steps / second.
+        """
+        return self.cur_speed
 
 
 class MotorPositionController:
@@ -323,3 +333,11 @@ class MotorPositionController:
             loop_delay (float): The loop delay to use.
         """
         self.speed_control.start_thread(loop_delay, self._position_control_hook)
+    
+    def get_speed(self) -> float:
+        """Gets the current speed of the motor.
+
+        Returns:
+            float: The current speed in steps / second.
+        """
+        return self.speed_control.cur_speed()

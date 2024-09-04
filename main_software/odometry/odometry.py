@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
+from motor_control import MotorPositionController
+
 # Global variables for odometry
 x = 0.0
 y = 0.0
@@ -46,10 +48,10 @@ wheel_radius = 0.027  # in meters
 wheel_base = 3.05 * 0.222  # distance between wheels in meters
 ticks_per_revolution = 19 * 47  #
 
-class Side(ABC):
-    """Base class for controlling the motor and encoder on a side."""
 
-    @abstractmethod
+class Side:
+    """Class for controlling the motor and encoder on a side."""
+
     def __init__(
         self,
         motor_a: int,
@@ -68,59 +70,69 @@ class Side(ABC):
             enc_a (int): Pin
             enc_b (int): Pin
         """
-        self.motor = Motor(motor_a, motor_b, enable=motor_en, pwm=True)
-        self.encoder = RotaryEncoder(enc_a, enc_b, max_steps=0)
+        motor = Motor(motor_a, motor_b, enable=motor_en, pwm=True)
+        encoder = RotaryEncoder(enc_a, enc_b, max_steps=0)
         self.name = name
-        self.target_steps = 0
-        self.movement_complete = True
 
-    @abstractmethod
-    def _drive_to_steps(self, steps: int, speed: float = 1):
+        # Controller and its constants
+        speed_kp = 0.01
+        speed_ki = 0.01
+        speed_windup = 0.01
+        pos_kp = 0.01
+        pos_ki = 0.01
+        pos_windup = 0.01
+        loop_delay = 0.02
+        self.pos_control = MotorPositionController(
+            speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup, motor, encoder
+        )
+        self.pos_control.start_thread(loop_delay)
+
+    def _drive_to_steps(self, steps: int, speed: int = 100):
         """Drives the motor to a given number of steps.
 
         Args:
             steps (int): The number of steps (absolute, not relative).
-            speed (float, optional): How fast to move. Defaults to 1.
+            speed (int, optional): How fast to move in steps / second. Defaults to 100.
         """
-        pass
+        self.pos_control.set_target_position(steps, speed)
 
-    def _drive_to_angle(self, angle: float, speed: float = 1):
+    def _drive_to_angle(self, angle: float, speed: int = 100):
         """Drives the motor to a given absolute angle.
 
         Args:
             angle (float): The number of radians (absolute, not relative).
-            speed (float, optional): How fast to move. Defaults to 1.
+            speed (int, optional): How fast to move. Defaults to 100.
         """
 
         self._drive_to_steps(self._angle_to_steps(angle), speed)
 
-    def _drive_to_angle_relative(self, angle: float, speed: float = 1):
+    def _drive_to_angle_relative(self, angle: float, speed: int = 100):
         """Drives the motor to a given angle relative to the current position.
 
         Args:
             angle (float): The number of radians (relative, not absolute).
-            speed (float, optional): How fast to move. Defaults to 1.
+            speed (int, optional): How fast to move. Defaults to 100.
         """
         abs_steps = (
             self._angle_to_steps(angle) + self.target_steps
         )  # self.target_steps assumes that the last target was reached, self.encoder.steps accrues errors.
         self._drive_to_steps(abs_steps, speed)
 
-    def drive_to_dist(self, dist: float, speed: float = 1):
+    def drive_to_dist(self, dist: float, speed: int = 1):
         """Drives the motor to a given absolute distance.
 
         Args:
             distance (float): The number of m (absolute, not relative).
-            speed (float, optional): How fast to move. Defaults to 1.
+            speed (int, optional): How fast to move. Defaults to 100.
         """
         self._drive_to_angle(self._dist_to_angle(dist), speed)
 
-    def drive_to_dist_relative(self, dist: float, speed: float = 1):
+    def drive_to_dist_relative(self, dist: float, speed: int = 1):
         """Drives the motor to a given distance relative to the current position.
 
         Args:
             distance (float): The number of m (relative, not absolute).
-            speed (float, optional): How fast to move. Defaults to 1.
+            speed (int, optional): How fast to move. Defaults to 100.
         """
         self._drive_to_angle_relative(self._dist_to_angle(dist), speed)
 
@@ -133,112 +145,35 @@ class Side(ABC):
     def _steps_to_angle(self, steps: int) -> float:
         return steps / ticks_per_revolution * 2 * math.pi
 
+    def _angle_to_dist(self, angle: float) -> float:
+        return angle * wheel_radius
+
     def target_reached(self) -> bool:
         """Checks if the motors have reached their target.
 
         Returns:
             bool: Are we there yet?
         """
-        return self.movement_complete
-
-    @abstractmethod
-    def stop(self):
-        """Stops the motor"""
-        pass
-
-
-class SimpleSide(Side):
-    """A simple motor controller that runs the motor at constant speed and stops when it reaches the correct position.
-    There is no speed feedback or PID control, so there is a bit of overshoot."""
-
-    def __init__(
-        self,
-        motor_a: int,
-        motor_b: int,
-        motor_en: int,
-        enc_a: int,
-        enc_b: int,
-        name: str = "",
-    ):
-        """Initialises the side (motor and encoder pair).
-
-        Args:
-            motor_a (int): Pin
-            motor_b (int): Pin
-            motor_en (int): Pin
-            enc_a (int): Pin
-            enc_b (int): Pin
-        """
-        super().__init__(motor_a, motor_b, motor_en, enc_a, enc_b, name)
-        self.direction = 1
-        self.encoder.when_rotated = self._are_we_there_yet
-
-        # TODO
-        # self.thread = MotorControlThread(self)
-        # self.thread.start()
-
-    def _drive_to_steps(self, steps: int, speed: float = 1):
-        """Drives the motor to a given number of steps.
-
-        Args:
-            steps (int): The number of steps (absolute, not relative).
-            speed (float, optional): How fast to move. Defaults to 1.
-        """
-        logging.debug(
-            f"drive_to_steps: {self.name} driving to {steps} ({self._steps_to_angle(steps)} radians)"
-        )
-        self.movement_complete = False
-        self.target_steps = steps
-        if steps > self.encoder.steps:
-            # Need to go forwards
-            self.motor.forward(speed)
-            self.direction = 1
-        else:
-            # Need to go backwards
-            self.motor.backward(speed)
-            self.direction = -1
-
-    def _are_we_there_yet(self):
-        distance_to_go = self.direction * (self.target_steps - self.encoder.steps)
-        if distance_to_go < 0:
-            # We got there. Stop
-            self.stop()
-            # logging.debug(f"Motor stopped {distance_to_go=}")
-            # TODO: Callback or something for when the motor is stopped.
-            self.movement_complete = True  # Indicate that the movement is complete
+        raise NotImplementedError("Target reached is not implemented yet!")
+        # return self.movement_complete
 
     def stop(self):
-        """Stops the motor"""
-        # self.motor.forward(0)
-        self.motor.stop()
+        """Stops the motor."""
+        self.pos_control.set_target_speed(0)
 
+    def get_speed(self) -> float:
+        """Gets the current speed of the motor in m/s.
 
-class PISide(Side):
-    """Motor controller that uses PI controllers to more intelligently control speed and position."""
-
-    # TODO
-    pass
-
-
-class MovementType(Enum):
-    """Enumerator for each type of movement"""
-
-    TURN = 0
-    MOVE = 1
-
-
-@dataclass
-class MovementRecord:
-    """A record of a movement"""
-
-    type: MovementType
-    value: float
+        Returns:
+            float: The current speed in metres / second.
+        """
+        return self._angle_to_dist(self._steps_to_angle(self.pos_control.get_speed()))
 
 
 class Vehicle:
     def __init__(self):
-        self.left = SimpleSide(6, 5, 13, 19, 26, "left")
-        self.right = SimpleSide(16, 7, 12, 20, 21, "right")
+        self.left = Side(6, 5, 13, 19, 26, "left")
+        self.right = Side(16, 7, 12, 20, 21, "right")
 
         # TODO
         # self.odometry_thread = threading.Thread(target=self.odometry_loop)
@@ -253,6 +188,34 @@ class Vehicle:
         # Initialize movement history stack - needed if returning to origin by reversing
         self.movement_history = []
         self.status = OdometryCurrent()
+
+    def calculate_velocity(
+        self, left_speed: float, right_speed: float
+    ) -> Tuple[float, float, float]:
+        """Calculates the angular velocity, center of rotation relative to the middle of the robot and tangential
+        velocity based on the left and right wheel speeds.
+
+        Args:
+            left_speed (float): The left speed in m/s.
+            right_speed (float): The right speed in m/s.
+
+        Returns:
+            Tuple[float, float, float]: The angular velocity (clockwise positive), the distance of the center of
+                                        rotation from the axle center (right is positive) and the linear velocity
+                                        (forwards is positive).
+        """
+
+        def angular_velocity(c1, c2, aw):
+            return -(c2 - c1) / aw
+
+        def centre_rad(c1, c2, aw):
+            return aw * (-c1 - c2) / (2 * (c1 - c2))
+
+        return (
+            angular_velocity(left_speed, right_speed, wheel_base),
+            centre_rad(left_speed, right_speed, wheel_base),
+            (left_speed + right_speed) / 2
+        )
 
     def record_movement(self, mtype: MovementType, value: float):
         """Records a movement action and its value - needed if returning to origin by reversing.

@@ -139,7 +139,7 @@ class MotorSpeedController:
         logging.debug(f"Setting target speed to {speed} steps / second.")
         self.target_speed = speed
 
-    def _update_speed(self, hook: Callable[[float, int], None] = None) -> None:
+    def update(self, hook: Callable[[float, int], None] = None) -> None:
         """Updates the controller and motor based on a target speed.
 
         Args:
@@ -214,7 +214,7 @@ class MotorSpeedController:
         """
         logging.debug("Motor controller thread started.")
         while True:
-            self._update_speed(hook)
+            self.update(hook)
             time.sleep(loop_delay)
 
     def start_thread(
@@ -317,6 +317,11 @@ class MotorPositionController:
             # Update the target speed.
             self.speed_control.set_target_speed(new_speed)
         self.pos_lock.release()
+
+    def update(self) -> None:
+        """Updates the controller.
+        """
+        self.speed_control.update(self._position_control_hook)
 
     def run(self, loop_delay: float) -> None:
         """Runs the position controller.

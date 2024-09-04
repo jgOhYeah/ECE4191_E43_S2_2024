@@ -37,6 +37,7 @@ from enum import Enum
 from abc import ABC, abstractmethod
 
 from motor_control import MotorPositionController
+from kalman import PositionAccumulator
 
 # Global variables for odometry
 x = 0.0
@@ -81,11 +82,10 @@ class Side:
         pos_kp = 0.01
         pos_ki = 0.01
         pos_windup = 0.01
-        loop_delay = 0.02
+
         self.pos_control = MotorPositionController(
             speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup, motor, encoder
         )
-        self.pos_control.start_thread(loop_delay)
 
     def _drive_to_steps(self, steps: int, speed: int = 100):
         """Drives the motor to a given number of steps.
@@ -169,25 +169,20 @@ class Side:
         """
         return self._angle_to_dist(self._steps_to_angle(self.pos_control.get_speed()))
 
+    def update(self) -> None:
+        """Updates the controllers.
+        """
+        self.pos_control.update()
+
 
 class Vehicle:
     def __init__(self):
         self.left = Side(6, 5, 13, 19, 26, "left")
         self.right = Side(16, 7, 12, 20, 21, "right")
-
-        # TODO
-        # self.odometry_thread = threading.Thread(target=self.odometry_loop)
-        # self.odometry_thread.daemon = True  # Daemon thread exits when the main program exits
-        # self.odometry_thread.start()
-
-        # Initialize PI controllers for heading and distance control
-        # TODO
-        # self.heading_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
-        # self.distance_controller = PIController(kp=1.0, ki=0.1, sample_time=0.1)
-
-        # Initialize movement history stack - needed if returning to origin by reversing
-        self.movement_history = []
+        self.position = PositionAccumulator()
         self.status = OdometryCurrent()
+
+        self.last_update = time.time()
 
     def calculate_velocity(
         self, left_speed: float, right_speed: float
@@ -204,7 +199,7 @@ class Vehicle:
                                         rotation from the axle center (right is positive) and the linear velocity
                                         (forwards is positive).
         """
-
+        # See the jupyter notebook.
         def angular_velocity(c1, c2, aw):
             return -(c2 - c1) / aw
 
@@ -217,68 +212,48 @@ class Vehicle:
             (left_speed + right_speed) / 2
         )
 
-    def record_movement(self, mtype: MovementType, value: float):
-        """Records a movement action and its value - needed if returning to origin by reversing.
+    def predict(self, angular_velocity:float, centre_radius:float, tangential_speed:float, timestep:float) -> Tuple[float, float, float]:
+        """Predicts the left-right change, forwards change and new angle.
 
         Args:
-            mtype (MovementType): the type of movement.
-            value (float): how much it moved.
+            angular_velocity (float): The angular velocity of the robot rotating.
+            centre_rad (float): The centre of rotation. 0 is between the two wheels.
+            speed (float): The tangential speed.
+            timestep (float): The time step.
+
+        Returns:
+            Tuple[float, float, float]: The left-right change, forwards-backward change and heading change.
         """
-        self.movement_history.append(MovementRecord(mtype, value))
+        # See the jupyter notebook.
+        angle_change = angular_velocity * timestep
+        if angle_change != 0:
+            # Going around a corner.
+            forwards = centre_radius * math.sin(angle_change)
+            sideways = centre_radius - centre_radius * math.cos(angle_change)
+        else:
+            # Going straight forwards or backwards.
+            forwards = tangential_speed * timestep
+            sideways = 0
 
-    def odometry_loop(self):
-        while True:
-            self.update_odometry()
-            time.sleep(1)  # Adjust the sleep duration as necessary
+        return forwards, sideways, angle_change
+    
+    def update(self) -> None:
+        """Updates the vehicle state.
+        """
+        # Calculate the time step.
+        timestamp = time.time()
+        timestep = timestamp - self.last_update
+        self.last_update = timestamp
 
-    def update_odometry(self):
-        # global x, y, theta, left_count, right_count
-        logging.debug(
-            f"update_odometry: self.left.encoder.steps {self.left.encoder.steps}"
-        )
-        logging.debug(
-            f"update_odometry: self.right.encoder.steps {self.right.encoder.steps}"
-        )
-        # left_distance = (2 * math.pi * wheel_radius * self.left.encoder.steps) / ticks_per_revolution
-        # right_distance = (2 * math.pi * wheel_radius * self.right.encoder.steps) / ticks_per_revolution
-        # distance = (left_distance + right_distance) / 2.0
-        # delta_theta = (right_distance - left_distance) / wheel_base
-        # x += distance * math.cos(theta + delta_theta / 2.0)
-        # y += distance * math.sin(theta + delta_theta / 2.0)
-        # theta += delta_theta
-        # logger.debug(f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians")
-        global x, y, theta, left_count, right_count
+        # Update the controllers.
+        self.left.update()
+        self.right.update()
 
-        # Calculate the distance traveled by each wheel
-        delta_left = self.left.encoder.steps - left_count
-        delta_right = self.right.encoder.steps - right_count
-
-        # Update the counts
-        left_count = self.left.encoder.steps
-        right_count = self.right.encoder.steps
-
-        # Convert steps to distance
-        left_distance = delta_left * (2 * math.pi * wheel_radius) / ticks_per_revolution
-        right_distance = (
-            delta_right * (2 * math.pi * wheel_radius) / ticks_per_revolution
-        )
-
-        # Calculate the change in orientation
-        delta_theta = (right_distance - left_distance) / wheel_base
-
-        # Calculate the change in position
-        average_distance = (left_distance + right_distance) / 2
-        x += average_distance * math.cos(theta + delta_theta / 2)
-        y += average_distance * math.sin(theta + delta_theta / 2)
-        theta += delta_theta
-
-        # Normalize theta to be within -pi to pi
-        theta = (theta + math.pi) % (2 * math.pi) - math.pi
-
-        # Logging for debugging
-        logging.debug(
-            f"update_odometry: Position: x={x:.2f}, y={y:.2f}, theta={theta:.2f} radians"
-        )
+        # Calculate the change in vehicle position.
+        angular_velocity, rotation_centre, linear_velocity = self.calculate_velocity(self.left.get_speed(), self.right.get_speed())
+        forwards_change, sideways_change, angle_change = self.predict(angular_velocity, rotation_centre, linear_velocity, timestep)
+        self.position.add_relative(forwards_change, sideways_change, angle_change)
+        logging.debug(self.position)
 
     def move_to_heading(self, heading: float, distance: int, speed: float = 0.3):
         """Moves the platform to a specific relative heading and position.

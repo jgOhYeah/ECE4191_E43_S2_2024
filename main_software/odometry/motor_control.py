@@ -163,8 +163,7 @@ class MotorSpeedController:
 
         # Calculate and set the new motor PWM value.
         error = cur_speed - self.target_speed
-        windup = self._set_pwm(self.speed_control.update(error, timestep))
-        self.speed_control.windup(windup)
+        self._set_pwm(self.speed_control.update(error, timestep))
 
     def _set_pwm(self, pwm: float) -> float:
         """Sets the motor to a given PWM level
@@ -311,6 +310,7 @@ class MotorPositionController:
         # Check we actually need to control the speed.
         if self.mode == MotorControlMode.POSITION:
             # Calculate the speed output from the controller in steps / second.
+            print(f"{steps=}, {self.position_control.last_windup=}")
             error = steps - self.target_position
             new_speed = self.position_control.update(error, timestep)
 

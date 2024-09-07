@@ -9,7 +9,9 @@ venv_py="$cwd/../.venv/bin/python3"
 
 # # Start computer vision
 echo "Starting CV"
-cd "$cwd/../CV"; python3 detect_v2.py --modeldir="saved_models/tennis_model_v2" --threshold=0.15
+# threshold=0.15
+threshold=0.10
+cd "$cwd/../CV"; python3 detect_v2.py --modeldir="saved_models/tennis_model_v2" --threshold=$threshold
 
 # Start odometry
 # echo "Starting odometry"

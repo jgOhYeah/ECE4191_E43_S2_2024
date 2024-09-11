@@ -49,6 +49,13 @@ wheel_radius = 0.027  # in meters
 wheel_base = 3.05 * 0.222  # distance between wheels in meters
 ticks_per_revolution = 19 * 47  #
 
+# Control parameters
+speed_kp = 0.0005
+speed_ki = 0.0004
+speed_windup = 0.01
+pos_kp = 2.5
+pos_ki = 2
+pos_windup = 3
 
 class Side:
     """Class for controlling the motor and encoder on a side."""
@@ -76,13 +83,6 @@ class Side:
         self.name = name
 
         # Controller and its constants
-        speed_kp = 0.01
-        speed_ki = 0.01
-        speed_windup = 0.01
-        pos_kp = 0.01
-        pos_ki = 0.01
-        pos_windup = 0.01
-
         self.pos_control = MotorPositionController(
             speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup, motor, encoder
         )
@@ -114,7 +114,7 @@ class Side:
             speed (int, optional): How fast to move. Defaults to 100.
         """
         abs_steps = (
-            self._angle_to_steps(angle) + self.target_steps
+            self._angle_to_steps(angle) + self.pos_control.target_position
         )  # self.target_steps assumes that the last target was reached, self.encoder.steps accrues errors.
         self._drive_to_steps(abs_steps, speed)
 
@@ -154,7 +154,9 @@ class Side:
         Returns:
             bool: Are we there yet?
         """
-        raise NotImplementedError("Target reached is not implemented yet!")
+        allowed_error = 100
+        return False
+        # TODO: Return correctly
         # return self.movement_complete
 
     def stop(self):
@@ -184,6 +186,9 @@ class Vehicle:
 
         self.last_update = time.time()
 
+        thread = threading.Thread(target=self.run, args=())
+        thread.start()
+
     def calculate_velocity(
         self, left_speed: float, right_speed: float
     ) -> Tuple[float, float, float]:
@@ -204,7 +209,10 @@ class Vehicle:
             return -(c2 - c1) / aw
 
         def centre_rad(c1, c2, aw):
-            return aw * (-c1 - c2) / (2 * (c1 - c2))
+            if c1 == c2:
+                return math.inf
+            else:
+                return aw * (-c1 - c2) / (2 * (c1 - c2))
 
         return (
             angular_velocity(left_speed, right_speed, wheel_base),
@@ -255,6 +263,12 @@ class Vehicle:
         self.position.add_relative(forwards_change, sideways_change, angle_change)
         logging.debug(self.position)
 
+    def run(self) -> None:
+        """Calls update continuously in a loop."""
+        while True:
+            self.update()
+            time.sleep(0.1)
+
     def move_to_heading(self, heading: float, distance: int, speed: float = 0.3):
         """Moves the platform to a specific relative heading and position.
 
@@ -288,7 +302,7 @@ class Vehicle:
         # Record movement - needed if reversing back to origin
         if heading != 0:
             # Set heading
-            self.record_movement(MovementType.TURN, heading)
+            # self.record_movement(MovementType.TURN, heading)
             self.status.moving = True
             self.status.publish()
             left, right = self._calculate_heading(heading)
@@ -298,15 +312,12 @@ class Vehicle:
 
         if distance != 0:
             # Move forward by the given number of revolutions
-            self.record_movement(MovementType.MOVE, distance)
+            # self.record_movement(MovementType.MOVE, distance)
             self.status.moving = True
             self.status.publish()
             self.left.drive_to_dist_relative(distance, speed)
             self.right.drive_to_dist_relative(distance, speed)
             self.wait_for_movement()
-
-        # Update odometry after movement
-        self.update_odometry()
 
         self.status.moving = False
         self.status.publish()
@@ -317,7 +328,9 @@ class Vehicle:
         Returns:
             bool: True if currently moving.
         """
-        return (not self.left.target_reached()) and not (self.right.target_reached())
+        return False
+        # TODO
+        # return (not self.left.target_reached()) and not (self.right.target_reached())
 
     def wait_for_movement(self):
         """Waits until the movement operation is complete."""

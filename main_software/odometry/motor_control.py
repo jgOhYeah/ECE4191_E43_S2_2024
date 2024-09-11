@@ -51,7 +51,7 @@ class PIController:
         """
         # Calculate the theoretical output.
         self.integral += (
-            self.ki * error - self.windup_term * self.last_windup
+            self.ki * error + self.windup_term * self.last_windup
         ) * timestep
         recommended = -(self.kp * error + self.integral)
 
@@ -345,4 +345,4 @@ class MotorPositionController:
         Returns:
             float: The current speed in steps / second.
         """
-        return self.speed_control.cur_speed()
+        return self.speed_control.cur_speed

@@ -54,7 +54,7 @@ lock = threading.Lock()
 
 class VideoStream:
     def __init__(self, resolution=(640, 480), framerate=30):
-        self.stream = cv2.VideoCapture(1, cv2.CAP_DSHOW)  # Use DirectShow on Windows
+        self.stream = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Use DirectShow on Windows
         if not self.stream.isOpened():
             raise ValueError("Could not open video stream")
         self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))

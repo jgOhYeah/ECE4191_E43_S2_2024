@@ -118,7 +118,7 @@ class Side:
         )  # self.target_steps assumes that the last target was reached, self.encoder.steps accrues errors.
         self._drive_to_steps(abs_steps, speed)
 
-    def drive_to_dist(self, dist: float, speed: int = 1):
+    def drive_to_dist(self, dist: float, speed: int = 100):
         """Drives the motor to a given absolute distance.
 
         Args:
@@ -127,7 +127,7 @@ class Side:
         """
         self._drive_to_angle(self._dist_to_angle(dist), speed)
 
-    def drive_to_dist_relative(self, dist: float, speed: int = 1):
+    def drive_to_dist_relative(self, dist: float, speed: int = 100):
         """Drives the motor to a given distance relative to the current position.
 
         Args:
@@ -148,15 +148,13 @@ class Side:
     def _angle_to_dist(self, angle: float) -> float:
         return angle * wheel_radius
 
-    def target_reached(self) -> bool:
+    def pos_target_reached(self) -> bool:
         """Checks if the motors have reached their target.
 
         Returns:
             bool: Are we there yet?
         """
-        allowed_error = 100
-        return False
-        # TODO: Return correctly
+        return self.pos_control.pos_movement_complete()
         # return self.movement_complete
 
     def stop(self):
@@ -267,15 +265,15 @@ class Vehicle:
         """Calls update continuously in a loop."""
         while True:
             self.update()
-            time.sleep(0.1)
+            time.sleep(0.05)
 
-    def move_to_heading(self, heading: float, distance: int, speed: float = 0.3):
+    def move_to_heading(self, heading: float, distance: int, speed: float = 100):
         """Moves the platform to a specific relative heading and position.
 
         Args:
             heading (float): The new heading in radians, positive is clockwise when viewed from above.
             distance (int): Distance to move in m.
-            speed (float, optional): The speed between 0 and 1. Defaults to 0.3.
+            speed (float, optional): The speed in steps / second.
 
         Raises:
             ValueError: If given an unreasonable distance to move.
@@ -328,9 +326,7 @@ class Vehicle:
         Returns:
             bool: True if currently moving.
         """
-        return False
-        # TODO
-        # return (not self.left.target_reached()) and not (self.right.target_reached())
+        return (not self.left.pos_target_reached()) and not (self.right.pos_target_reached())
 
     def wait_for_movement(self):
         """Waits until the movement operation is complete."""
@@ -363,6 +359,7 @@ class Vehicle:
 
     # this one returns to origin by reversing actions
     def return_to_origin(self, speed: float = 1):
+        raise NotImplementedError("Return to origin not implemented")
         # return self.return_to_origin_simple(speed)
         return self.return_to_origin_direct(speed)
 
@@ -446,6 +443,7 @@ class Vehicle:
             speed (float, optional): The speed to drive at. Defaults to 0.5.
             max_dist (float, optional) The maximum distance to drive at a time.
         """
+        raise NotImplementedError("Return to origin not implemented")
         logging.info("Returning directly to origin")
         new_head, new_dist = self._calculate_origin_move(self.movement_history)
 
@@ -481,6 +479,7 @@ class Vehicle:
 
     def return_to_origin_simple(self, speed: float = 0.5):
         """Reverse all previous movements to return to the origin."""
+        raise NotImplementedError("Return to origin not implemented")
         logging.info("Returning to origin")
 
         # Process movements in reverse order
@@ -526,14 +525,12 @@ def parse_and_move(arg):
     """
     payload = arg
     heading = payload.get("heading", 0)
-    revolutions = payload.get("distance", 0)
+    distance = payload.get("distance", 0)
+    speed = payload.get("speed", 2000)
 
     # Print the received message and parsed values
-    # print(f"parse_and_move: Received message: {message.payload}")
-    logging.info(f"parse_and_move: Parsed heading: {heading}")
-    logging.info(f"parse_and_move: Parsed revolutions: {revolutions}")
-
-    vehicle.move_to_heading(heading, revolutions, 0.3)
+    logging.info(f"Setting position: {heading=}, {distance=}, {speed=}")
+    vehicle.move_to_heading(heading, distance, speed)
 
 
 def parse_and_return(arg):

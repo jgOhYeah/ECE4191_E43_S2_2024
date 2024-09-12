@@ -3,6 +3,7 @@ Classes to aid with motor control."""
 
 # Import the helper functions in defines.py
 from typing import Callable
+
 # import sys
 
 # Logging
@@ -96,6 +97,26 @@ class MotorControlMode(Enum):
     POSITION = 1
 
 
+class MotorAccelerationController:
+    """Class for controlling motor acceleration."""
+
+    def __init__(
+        self, kp: float, ki: float, windup: float, motor: Motor, encoder: RotaryEncoder
+    ):
+        """Initialised the controller.
+
+        Args:
+            kp (float): The proportional term.
+            ki (float): The integral term.
+            windup (float): The windup term for acceleration.
+            motor (Motor): The motor.
+            encoder (RotaryEncoder): The encoder.
+
+        Returns:
+            _type_: _description_
+        """
+
+
 class MotorSpeedController:
     """Class and thread for controlling the speed of a motor."""
 
@@ -121,7 +142,7 @@ class MotorSpeedController:
         self.target_speed = 0
         self.last_steps = 0
         self.last_time = 0
-        self.cur_speed = 0 # Store the current speed in case we are asked for it.
+        self.cur_speed = 0  # Store the current speed in case we are asked for it.
 
         # Motor and encoder hardware.
         self.motor = motor
@@ -136,7 +157,7 @@ class MotorSpeedController:
         Args:
             speed (float): The speed to aim for in steps / second.
         """
-        logging.debug(f"Setting target speed to {speed} steps / second.")
+        # logging.debug(f"Setting target speed to {speed} steps / second.")
         self.target_speed = speed
 
     def update(self, hook: Callable[[float, int], None] = None) -> None:
@@ -174,7 +195,7 @@ class MotorSpeedController:
         Returns:
             float: The difference between the requestated and maximum possible values.
         """
-        logging.debug(f"Setting PWM to {pwm}")
+        # logging.debug(f"Setting PWM to {pwm}")
         limited = pwm
         if pwm > 0:
             limited = min(pwm, 1)
@@ -229,7 +250,7 @@ class MotorSpeedController:
         """
         thread = threading.Thread(target=self.run, args=(loop_delay, hook))
         thread.start()
-    
+
     def get_speed(self) -> float:
         """Gets the current speed of the motor.
 
@@ -244,30 +265,22 @@ class MotorPositionController:
 
     def __init__(
         self,
-        speed_kp: float,
-        speed_ki: float,
-        speed_windup: float,
+        speed_control: MotorSpeedController,
         pos_kp: float,
         pos_ki: float,
         pos_windup: float,
-        motor: Motor,
-        encoder: RotaryEncoder,
     ) -> None:
         """Initialises the controller.
 
         Args:
-            speed_kp (float): Proportional term for the speed controller.
-            speed_ki (float): Integral term for the speed controller.
-            speed_windup (float): Anti-windup term for the speed controller.
+            speed_control (MotorSpeedController): Anti-windup term for the speed controller.
             pos_kp (float): Proportional term for the position controller.
             pos_ki (float): Integral term for the position controller.
             pos_windup (float): Anti-windup term for the position controller.
             motor (Motor): Motor to control.
             encoder (RotaryEncoder): Encoder attached to the motor.
         """
-        self.speed_control = MotorSpeedController(
-            speed_kp, speed_ki, speed_windup, motor, encoder
-        )
+        self.speed_control = speed_control
         self.position_control = PIController(pos_kp, pos_ki, pos_windup, 0, 0)
         self.target_position = 0
         self.mode = MotorControlMode.POSITION
@@ -292,7 +305,7 @@ class MotorPositionController:
             max_speed (float, optional): The maximum speed to traverse at. If None, no limit. Defaults to None.
         """
         # Use locks here as we are editing multiple variables that need to stay in sync / be updated together.
-        logging.debug(f"Setting target position to {position} steps.")
+        # logging.debug(f"Setting target position to {position} steps.")
         self.pos_lock.acquire()
         self.target_position = position
         self.mode = MotorControlMode.POSITION
@@ -310,7 +323,7 @@ class MotorPositionController:
         # Check we actually need to control the speed.
         if self.mode == MotorControlMode.POSITION:
             # Calculate the speed output from the controller in steps / second.
-            print(f"{steps=}, {self.position_control.last_windup=}")
+            # print(f"{steps=}, {self.position_control.last_windup=}")
             error = steps - self.target_position
             new_speed = self.position_control.update(error, timestep)
 
@@ -319,8 +332,7 @@ class MotorPositionController:
         self.pos_lock.release()
 
     def update(self) -> None:
-        """Updates the controller.
-        """
+        """Updates the controller."""
         self.speed_control.update(self._position_control_hook)
 
     def run(self, loop_delay: float) -> None:
@@ -338,7 +350,7 @@ class MotorPositionController:
             loop_delay (float): The loop delay to use.
         """
         self.speed_control.start_thread(loop_delay, self._position_control_hook)
-    
+
     def get_speed(self) -> float:
         """Gets the current speed of the motor.
 
@@ -346,3 +358,17 @@ class MotorPositionController:
             float: The current speed in steps / second.
         """
         return self.speed_control.cur_speed
+
+    def pos_movement_complete(
+        self, allowed_error: int = 50, allowed_speed: int = 50
+    ) -> bool:
+        """Checks if the movement is complete.
+
+        Returns:
+            bool: True if moved to new position and stopped, false otherwise.
+        """
+        self.pos_lock.acquire()
+        error = abs(self.speed_control.encoder.steps - self.target_position)
+        speed = self.speed_control.target_speed
+        self.pos_lock.release()
+        return error <= allowed_error and speed <= allowed_speed

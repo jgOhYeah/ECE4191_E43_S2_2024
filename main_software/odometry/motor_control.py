@@ -231,6 +231,7 @@ class MotorAccelerationController:
         
         # Set PWM limits
         min_pwm, max_pwm = self.get_pwm_limits(speed)
+        # min_pwm, max_pwm = -1, 1
         self.acceleration_control.set_limits(min_pwm, max_pwm)
 
         # Use the controller to calculate a new value
@@ -271,9 +272,13 @@ class MotorAccelerationController:
             # Currently moving forwards.
             max_accel = self.max_accel_on
             min_accel = -self.max_accel_off
-        else:
+        elif speed < 0:
             # Currently moving backwards.
             max_accel = self.max_accel_off
+            min_accel = -self.max_accel_on
+        else:
+            # Not moving, limit in both directions
+            max_accel = self.max_accel_on
             min_accel = -self.max_accel_on
 
         return min_accel, max_accel
@@ -306,6 +311,8 @@ class MotorSpeedController:
         # PI Control for speed
         self.speed_control = controller
 
+        self.update_count = 0
+
     def set_target_speed(self, speed: float) -> None:
         """Sets the target speed of the motor.
 
@@ -336,13 +343,16 @@ class MotorSpeedController:
         # Measure the current speed.
         cur_speed = self._measure_speed(timestep, steps)
 
-        # Limit the maximum acceleration based on the current direction
-        min_accel, max_accel = self.accel_control.get_accel_limit(cur_speed)
-        self.speed_control.set_limits(min_accel, max_accel)
+        self.update_count += 1
+        if self.update_count == 6:
+            self.update_count = 0
+            # Limit the maximum acceleration based on the current direction
+            min_accel, max_accel = self.accel_control.get_accel_limit(cur_speed)
+            self.speed_control.set_limits(min_accel, max_accel)
 
-        # Update the speed and acceleration controllers.
-        accel_request = self.speed_control.update(cur_speed, timestep)
-        self.accel_control.set_target_acceleration(accel_request) # TODO
+            # Update the speed and acceleration controllers.
+            accel_request = self.speed_control.update(cur_speed, timestep)
+            self.accel_control.set_target_acceleration(accel_request)
         self.accel_control.update(timestep, cur_speed)
 
     def _measure_speed(self, timestep: float, steps: int) -> float:
@@ -417,6 +427,8 @@ class MotorPositionController:
         self.mode = MotorControlMode.POSITION
         self.pos_lock = threading.Lock()
 
+        self.update_count = 0
+
     def set_target_speed(self, speed: float) -> None:
         """Sets the target speed of the motor. Position control will be ignored.
 
@@ -449,15 +461,18 @@ class MotorPositionController:
             timestep (float): The time step from the last time this hook was called.
             steps (int): The current number of steps on the encoder.
         """
-        self.pos_lock.acquire()
-        # Check we actually need to control the speed.
-        if self.mode == MotorControlMode.POSITION:
-            # Calculate the speed output from the controller in steps / second.
-            new_speed = self.position_control.update(steps, timestep)
+        self.update_count += 1
+        if self.update_count == 20:
+            self.update_count = 0
+            self.pos_lock.acquire()
+            # Check we actually need to control the speed.
+            if self.mode == MotorControlMode.POSITION:
+                # Calculate the speed output from the controller in steps / second.
+                new_speed = self.position_control.update(steps, timestep)
 
-            # Update the target speed.
-            self.speed_control.set_target_speed(new_speed)
-        self.pos_lock.release()
+                # Update the target speed.
+                self.speed_control.set_target_speed(new_speed)
+            self.pos_lock.release()
 
     def update(self) -> None:
         """Updates the controller."""

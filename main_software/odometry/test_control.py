@@ -52,14 +52,19 @@ def test_speed(sc:MotorSpeedController):
     sc.set_target_speed(ts)
 
 
-# def test_position(speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup):
-#     pc = MotorPositionController(
-#         speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup, motor, encoder
-#     )
-#     pc.start_thread(0.1)
-#     logging.info("Setting position step")
-#     pc.set_target_position(1000, 3000)
-#     time.sleep(5)
+def test_position(pc:MotorPositionController):
+    pc.start_thread(0.02)
+    # logging.info("Setting position step")
+    # pc.set_target_position(1000, 1000)
+    # time.sleep(5)
+    # logging.info("Setting position step")
+    # pc.set_target_position(9000, 2000)
+    # time.sleep(5)
+    # logging.info("Setting position step")
+    # pc.set_target_position(0, 500)
+    # time.sleep(5)
+    logging.info("Setting position step")
+    pc.set_target_position(5000, 2000)
 
 
 if __name__ == "__main__":
@@ -67,6 +72,7 @@ if __name__ == "__main__":
     logging.info("Control test started")
     # Create the motor and encoder objects.
     motor_a, motor_b, motor_en, enc_a, enc_b = 6, 5, 13, 19, 26
+    # motor_a, motor_b, motor_en, enc_a, enc_b = 16, 7, 12, 20, 21
     motor = Motor(motor_a, motor_b, enable=motor_en, pwm=True)
     encoder = RotaryEncoder(enc_a, enc_b, max_steps=0)
     # motor.forward(0.1) # NOTE
@@ -74,8 +80,8 @@ if __name__ == "__main__":
     accel_kp = 0.00001
     accel_ki = 0.001
     accel_windup = 20
-    accel_on = 10000
-    accel_off = 10000
+    accel_on = 5000
+    accel_off = 20000
     accel_control = MotorAccelerationController(
         PIControllerLogged(accel_kp, accel_ki, accel_windup, log_dir, "acceleration.csv"),
         motor,
@@ -86,8 +92,8 @@ if __name__ == "__main__":
     )
 
     # Create the speed controller
-    speed_kp = 2
-    speed_ki = 0.3
+    speed_kp = 8
+    speed_ki = 0.5
     speed_windup = 3
     speed_control = MotorSpeedController(
         PIControllerLogged(speed_kp, speed_ki, speed_windup, log_dir, "speed.csv"),
@@ -95,15 +101,16 @@ if __name__ == "__main__":
         create_filter(4, 20, 1/0.02)
     )
     # test_acceleration(accel_control, speed_control)
+    # test_speed(speed_control)
 
-    test_speed(speed_control)
-    # pos_kp = 2.5
-    # pos_ki = 2
-    # pos_windup = 3
-    # test_speed(speed_kp, speed_ki, speed_windup)
-    # test_position(speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup)
-    # Create the position control
-    
+    pos_kp = 2
+    pos_ki = 0.2
+    pos_windup = 0.00
 
+    pos_control = MotorPositionController(
+        PIControllerLogged(pos_kp, pos_ki, pos_windup, log_dir, "position.csv"),
+        speed_control
+    )
+    test_position(pos_control)
     while True:
         time.sleep(1)

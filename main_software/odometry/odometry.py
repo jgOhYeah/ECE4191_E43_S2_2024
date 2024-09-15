@@ -36,7 +36,8 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
-from motor_control import MotorPositionController
+from motor_control import MotorAccelerationController, MotorSpeedController, MotorPositionController, PIControllerLogged
+from digitalfilter import create_filter
 from kalman import PositionAccumulator
 
 # Global variables for odometry
@@ -48,14 +49,6 @@ right_count = 0
 wheel_radius = 0.027  # in meters
 wheel_base = 3.05 * 0.222  # distance between wheels in meters
 ticks_per_revolution = 19 * 47  #
-
-# Control parameters
-speed_kp = 0.0005
-speed_ki = 0.0004
-speed_windup = 0.01
-pos_kp = 2.5
-pos_ki = 2
-pos_windup = 3
 
 class Side:
     """Class for controlling the motor and encoder on a side."""
@@ -83,8 +76,39 @@ class Side:
         self.name = name
 
         # Controller and its constants
+        accel_kp = 0.00001
+        accel_ki = 0.001
+        accel_windup = 20
+        accel_on = 5000
+        accel_off = 20000
+        accel_control = MotorAccelerationController(
+            PIControllerLogged(accel_kp, accel_ki, accel_windup, name, "acceleration.csv"),
+            motor,
+            encoder,
+            accel_on,
+            accel_off,
+            create_filter(4, 20, 1/0.02)
+        )
+
+        # Create the speed controller
+        speed_kp = 8
+        speed_ki = 0.5
+        speed_windup = 3
+        speed_control = MotorSpeedController(
+            PIControllerLogged(speed_kp, speed_ki, speed_windup, name, "speed.csv"),
+            accel_control,
+            create_filter(4, 20, 1/0.02)
+        )
+        # test_acceleration(accel_control, speed_control)
+        # test_speed(speed_control)
+
+        pos_kp = 2
+        pos_ki = 0.2
+        pos_windup = 0.00
+
         self.pos_control = MotorPositionController(
-            speed_kp, speed_ki, speed_windup, pos_kp, pos_ki, pos_windup, motor, encoder
+            PIControllerLogged(pos_kp, pos_ki, pos_windup, name, "position.csv"),
+            speed_control
         )
 
     def _drive_to_steps(self, steps: int, speed: int = 100):
@@ -114,7 +138,7 @@ class Side:
             speed (int, optional): How fast to move. Defaults to 100.
         """
         abs_steps = (
-            self._angle_to_steps(angle) + self.pos_control.target_position
+            self._angle_to_steps(angle) + self.pos_control.position_control.target
         )  # self.target_steps assumes that the last target was reached, self.encoder.steps accrues errors.
         self._drive_to_steps(abs_steps, speed)
 
@@ -265,7 +289,7 @@ class Vehicle:
         """Calls update continuously in a loop."""
         while True:
             self.update()
-            time.sleep(0.05)
+            time.sleep(0.02)
 
     def move_to_heading(self, heading: float, distance: int, speed: float = 100):
         """Moves the platform to a specific relative heading and position.

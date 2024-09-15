@@ -2,7 +2,7 @@
 Classes to aid with motor control."""
 
 # Import the helper functions in defines.py
-from typing import Callable
+from typing import Callable, Tuple
 
 # import sys
 
@@ -16,6 +16,7 @@ from gpiozero import Motor, RotaryEncoder
 import threading
 import time
 
+controller_log_dir = "logs"
 
 class PIController:
     """Class to implement a PI controller in real time."""
@@ -60,7 +61,7 @@ class PIController:
         limited = self.limit(recommended)
         self.last_windup = recommended - limited
 
-        # Don
+        # Done
         return limited
 
     def limit(self, value: float) -> float:
@@ -90,6 +91,46 @@ class PIController:
         self.max_output = max_output
 
 
+class PIControllerLogged(PIController):
+    def __init__(
+        self,
+        kp: float,
+        ki: float,
+        windup: float,
+        min_output: float,
+        max_output: float,
+        log_dir: str,
+        log_file: str,
+    ):
+        """Creates the PI controller and opens a file to log to.
+        """
+        # Initialise as normal.
+        super().__init__(kp, ki, windup, min_output, max_output)
+
+        # Create the log file.
+        self.log_file = open(f"{log_dir}/{log_file}", "w")
+        self.log_file.write(f"Timestamp [s],Timestep,Limit Min,Limit Max,Target,Error,Output\n")
+        self.log_timestamp = 0
+        self.log_target = 0
+
+    def set_log_time_target(self, timestamp:float, target:float):
+        """Sets the time to appear in the logs.
+
+        Args:
+            timestamp (float): Time to show in seconds.
+            target (float): The target to show.
+        """
+        self.log_timestamp = timestamp
+        self.log_target = target
+    
+    def update(self, error: float, timestep: float) -> float:
+        output = super().update(error, timestep)
+        self.log_file.write(f"{self.log_timestamp},{timestep},{self.min_output},{self.max_output},{self.log_target},{error},{output}\n")
+        return output
+
+    def close(self):
+        self.log_file.close()
+
 class MotorControlMode(Enum):
     """Enumerator for whether the motor is trying to maintain speed or position."""
 
@@ -101,8 +142,15 @@ class MotorAccelerationController:
     """Class for controlling motor acceleration."""
 
     def __init__(
-        self, kp: float, ki: float, windup: float, motor: Motor, encoder: RotaryEncoder
-    ):
+        self,
+        kp: float,
+        ki: float,
+        windup: float,
+        motor: Motor,
+        encoder: RotaryEncoder,
+        max_accel_on: float,
+        max_accel_off: float,
+    ) -> None:
         """Initialised the controller.
 
         Args:
@@ -111,10 +159,95 @@ class MotorAccelerationController:
             windup (float): The windup term for acceleration.
             motor (Motor): The motor.
             encoder (RotaryEncoder): The encoder.
+            max_accel_on (float): Maximum acceleration magnitude when speeding up in steps / s^2.
+            max_accel_off (float): Maximum acceleration magnitude when slowing down in steps / s^2.
+        """
+        self.acceleration_control = PIControllerLogged(kp, ki, windup, -1, 1, controller_log_dir, "accel")
+        self.motor = motor
+        self.encoder = encoder
+        self.max_accel_on = max_accel_on
+        self.max_accel_off = max_accel_off
+        self.last_speed = 0
+
+        self.target_acceleration = 0
+
+    def set_target_acceleration(self, acceleration: float) -> None:
+        """Sets the target acceleration.
+
+        Args:
+            acceleration (float): Target in steps / second ^2.
+        """
+        self.target_acceleration = acceleration
+
+    def _measure_acceleration(self, timestep: float, speed: float) -> float:
+        """Measures the current acceleration.
+
+        Args:
+            timestep (float): The time step.
+            speed (float): The latest speed reading in steps / second.
 
         Returns:
-            _type_: _description_
+            float: The acceleration in steps / second ^2
         """
+        acceleration = (speed - self.last_speed) / timestep
+        self.last_speed = speed
+        return acceleration
+
+    def _set_pwm(self, pwm: float) -> float:
+        """Sets the motor to a given PWM level
+
+        Args:
+            pwm (float): The PWM level (>=+1 is flat out forwards, 0 is stopped, <=-1 is flat out backwards).
+
+        Returns:
+            float: The difference between the requestated and maximum possible values.
+        """
+        # logging.debug(f"Setting PWM to {pwm}")
+        limited = pwm
+        if pwm > 0:
+            limited = min(pwm, 1)
+            self.motor.forward(limited)
+        elif pwm < 0:
+            limited = max(pwm, -1)
+            self.motor.backward(-limited)
+        else:
+            self.motor.stop()
+
+        return pwm - limited
+
+    def update(self, timestep: float, speed: float) -> None:
+        """Updates the controller and motor based on a target acceleration.
+
+        Args:
+            timestep (float): The time since the last update.
+            speed (float): The current speed.
+        """
+        # Calculate the acceleration and error.
+        cur_acceleration = self._measure_acceleration(timestep, speed)
+        error = cur_acceleration - self.target_acceleration
+        pwm_request = self.acceleration_control.update(error, timestep)
+        self._set_pwm(pwm_request)
+
+    def get_accel_limit(self, speed: float) -> Tuple[float, float]:
+        """Returns the maximum and minimum limits to the acceleration, based on the direction of the motors.
+
+        Args:
+            speed (float): The current speed.
+
+        Returns:
+            Tuple[float, float]: Acceleration limits (minimum, maximum).
+        """
+        # Calculate the minimum and maximum acceleration based on the current direction.
+        if speed > 0:
+            # Currently moving forwards.
+            max_accel = self.max_accel_on
+            min_accel = -self.max_accel_off
+        else:
+            # Currently moving backwards.
+            max_accel = self.max_accel_off
+            min_accel = -self.max_accel_on
+
+        return min_accel, max_accel
 
 
 class MotorSpeedController:
@@ -125,8 +258,7 @@ class MotorSpeedController:
         kp: float,
         ki: float,
         windup: float,
-        motor: Motor,
-        encoder: RotaryEncoder,
+        accel_control: MotorAccelerationController,
     ):
         """Initialises the motor controller.
 
@@ -134,8 +266,7 @@ class MotorSpeedController:
             kp (float): The proportional argument.
             ki (float): The integral argument.
             windup (float): The anti-windup term.
-            motor (Motor): The motor to control.
-            encoder (RotaryEncoder): The encoder to control.
+            accel_control (MotorAccelerationController): Controller for motor acceleration.
         """
         # TODO: Anti-windup.
         # Targets. Need to take a lock before reading or adjusting to avoid race conditions.
@@ -144,12 +275,10 @@ class MotorSpeedController:
         self.last_time = 0
         self.cur_speed = 0  # Store the current speed in case we are asked for it.
 
-        # Motor and encoder hardware.
-        self.motor = motor
-        self.encoder = encoder
+        self.accel_control = accel_control
 
         # PI Control for speed
-        self.speed_control = PIController(kp, ki, windup, -1, 1)
+        self.speed_control = PIControllerLogged(kp, ki, windup, -1, 1, controller_log_dir, "speed")
 
     def set_target_speed(self, speed: float) -> None:
         """Sets the target speed of the motor.
@@ -175,7 +304,7 @@ class MotorSpeedController:
         self.last_time = timestamp
 
         # Call the hook
-        steps = self.encoder.steps
+        steps = self.accel_control.encoder.steps
         if hook:
             hook(timestep, steps)
 
@@ -184,29 +313,15 @@ class MotorSpeedController:
 
         # Calculate and set the new motor PWM value.
         error = cur_speed - self.target_speed
-        self._set_pwm(self.speed_control.update(error, timestep))
 
-    def _set_pwm(self, pwm: float) -> float:
-        """Sets the motor to a given PWM level
+        # Limit the maximum acceleration based on the current direction
+        min_accel, max_accel = self.accel_control.get_accel_limit(cur_speed)
+        self.speed_control.set_limits(min_accel, max_accel)
 
-        Args:
-            pwm (float): The PWM level (>=+1 is flat out forwards, 0 is stopped, <=-1 is flat out backwards).
-
-        Returns:
-            float: The difference between the requestated and maximum possible values.
-        """
-        # logging.debug(f"Setting PWM to {pwm}")
-        limited = pwm
-        if pwm > 0:
-            limited = min(pwm, 1)
-            self.motor.forward(limited)
-        elif pwm < 0:
-            limited = max(pwm, -1)
-            self.motor.backward(-limited)
-        else:
-            self.motor.stop()
-
-        return pwm - limited
+        # Update the speed and acceleration controllers.
+        accel_request = self.speed_control.update(error, timestep)
+        self.accel_control.set_target_acceleration(accel_request)
+        self.accel_control.update(timestep, cur_speed)
 
     def _measure_speed(self, timestep: float, steps: int) -> float:
         """Calculates the current speed in steps per second.
@@ -281,7 +396,7 @@ class MotorPositionController:
             encoder (RotaryEncoder): Encoder attached to the motor.
         """
         self.speed_control = speed_control
-        self.position_control = PIController(pos_kp, pos_ki, pos_windup, 0, 0)
+        self.position_control = PIControllerLogged(pos_kp, pos_ki, pos_windup, 0, 0, controller_log_dir, "position")
         self.target_position = 0
         self.mode = MotorControlMode.POSITION
         self.pos_lock = threading.Lock()

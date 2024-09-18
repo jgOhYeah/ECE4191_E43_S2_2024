@@ -16,7 +16,8 @@ from defines import (
     mqtt_client,
     publish_mqtt,
     OdometryCurrent,
-    MoveSpeed
+    MoveSpeed,
+    MovePosition
 )
 
 # Logging
@@ -263,12 +264,11 @@ class Vehicle:
             (left_speed + right_speed) / 2
         )
 
-    def _calculate_speeds(self, angular_velocity:float, centre_rad:float, speed:float) -> Tuple[float, float]:
+    def _calculate_speeds(self, angular_velocity:float, speed:float) -> Tuple[float, float]:
         """Calculates the left and right motor speeds required.
 
         Args:
             angular_velocity (float): _description_
-            centre_rad (float): _description_
             speed (float): _description_
 
         Returns:
@@ -410,7 +410,7 @@ class Vehicle:
         # return (not self.left.pos_target_reached()) and not (self.right.pos_target_reached())
         ANGULAR_ERROR = 1e-2
         LINEAR_ERROR = 1e-3
-        return abs(self.angular_velocity) < ANGULAR_ERROR and abs(self.linear_velocity) < LINEAR_ERROR
+        return not (abs(self.angular_velocity) < ANGULAR_ERROR and abs(self.linear_velocity) < LINEAR_ERROR)
 
     def wait_for_movement(self):
         """Waits until the movement operation is complete."""
@@ -560,39 +560,6 @@ class Vehicle:
 
         logging.debug(f"Done returning to home.")
         self.update_odometry()
-
-    def return_to_origin_simple(self, speed: float = 0.5):# XXX: Replace
-        """Reverse all previous movements to return to the origin."""
-        raise NotImplementedError("Return to origin not implemented")
-        logging.info("Returning to origin")
-
-        # Process movements in reverse order
-        while self.movement_history:
-            movement = self.movement_history.pop()
-            logging.debug(f"Reversing movement {movement}")
-            if movement.type == MovementType.MOVE:
-                # Reverse forward movement
-                self.left.drive_to_dist_relative(-movement.value, speed)
-                self.right.drive_to_dist_relative(-movement.value, speed)
-                self.wait_for_movement()
-            elif movement.type == MovementType.TURN:
-                # Reverse turn movement
-                left, right = self._calculate_heading(movement.value)
-                self.left.drive_to_dist_relative(-left, speed)
-                self.right.drive_to_dist_relative(-right, speed)
-                self.wait_for_movement()
-
-        # # Ensure the robot is correctly oriented
-        # TODO
-        # self.left.drive_to_angle_relative(-theta, speed)
-        # self.right.drive_to_angle_relative(theta, speed)
-        # self.wait_for_movement()
-
-        # Clear movement history to avoid re-execution
-        # self.movement_history.clear()
-
-        # Update odometry after movement
-        self.update_odometry()
     
     def move_speed(self, move_speed:MoveSpeed) -> None:
         """Commands the vehicle to move with a given speed.
@@ -601,9 +568,14 @@ class Vehicle:
             move_speed (MoveSpeed): The object containing the command
         """
         logging.debug(f"Got move command, {move_speed}")
-        left, right = self._calculate_speeds(move_speed.angular_velocity, move_speed.turn_radius, move_speed.speed)
+        left, right = self._calculate_speeds(move_speed.angular_velocity, move_speed.speed)
         self.left.set_speed(left)
         self.right.set_speed(right)
+    
+    def move_position(self, move_position:MovePosition) -> None:
+        """Commands the vehicle to move to a specific position."""
+        logging.debug(f"Got move to position command {move_position}")
+        raise NotImplementedError("Moving to a fixed position is not implemented yet.")
 
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle:Vehicle):
@@ -612,6 +584,7 @@ def initialize_mqtt(vehicle:Vehicle):
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
         MoveSpeed(callback=vehicle.move_speed).topic_method_pair(),
+        MovePosition(callback=vehicle.move_position).topic_method_pair()
     ]
 
     # Setup MQTT with the defined topic-method pairs

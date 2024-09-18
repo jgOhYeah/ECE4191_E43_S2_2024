@@ -1,7 +1,7 @@
 """defines.py
 This file should be included by all sections. It contains MQTT login detauls and topics."""
 
-from typing import Callable, List
+from typing import Callable, List, Tuple
 import paho.mqtt.client as mqtt
 from dataclasses import dataclass
 import logging
@@ -125,14 +125,37 @@ def setup_logging(filename: str = "log.txt", log_level: int = logging.DEBUG):
     )
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+
 class OdometryCurrent:
     """Class for storing, transmitting and receiving the current odometry readings."""
-    def __init__(self):
-        self.heading: float = 0
-        self.position: List[float] = [0, 0]
-        self.speed: float = 0
-        self.angular_velocity: float = 0
-        self.moving: bool = False
+
+    def __init__(
+        self,
+        heading: float = 0,
+        position: Tuple[float, float] = (0, 0),
+        speed: float = 0,
+        angular_velocity: float = 0,
+        moving: bool = False,
+        turn_radius: float = 0,
+    ):
+        """Creates the status object.
+        
+        All parameters are optional and default to 0 (or their equivalent.)
+
+        Args:
+            heading (float, optional): Heading in radians. Defaults to 0.
+            position (Tuple[float, float], optional): Position in m. Defaults to (0, 0).
+            speed (float, optional): Speed in m/s. Defaults to 0.
+            angular_velocity (float, optional): Angular velocity in rad/s. Defaults to 0.
+            moving (bool, optional): Whether the robot is moving. Defaults to False.
+            turn_radius (float, optional): The current turning radius in m. Defaults to 0.
+        """
+        self.heading = heading
+        self.position = position
+        self.speed = speed
+        self.angular_velocity = angular_velocity
+        self.moving = moving
+        self.turn_radius = turn_radius
 
     def publish(self):
         """Publishes the current object to MQTT."""
@@ -140,15 +163,16 @@ class OdometryCurrent:
         publish_mqtt(
             MQTTTopics.ODOMETRY_CURRENT,
             {
-                "moving": self.moving,
+                "moving": bool(self.moving),
                 "heading": self.heading,
                 "position": self.position,
                 "speed": self.speed,
                 "angular-velocity": self.angular_velocity,
+                "turn-radius": self.turn_radius,
             },
         )
 
-    def receive(self, args:dict):
+    def receive(self, args: dict):
         """Populates the object with a received object."""
         logging.debug("Receiving latest positions.")
         self.moving = args["moving"]
@@ -156,3 +180,4 @@ class OdometryCurrent:
         self.position = args["position"]
         self.speed = args["speed"]
         self.angular_velocity = args["angular-velocity"]
+        self.turn_radius = args["turn-radius"]

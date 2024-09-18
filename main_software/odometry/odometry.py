@@ -38,14 +38,9 @@ from abc import ABC, abstractmethod
 
 from motor_control import MotorAccelerationController, MotorSpeedController, MotorPositionController, PIControllerLogged
 from digitalfilter import create_filter
-from kalman import PositionAccumulator
+from kalman import PositionAccumulator, PositionAccumulatorLogged
 
-# Global variables for odometry
-x = 0.0
-y = 0.0
-theta = 0.0
-left_count = 0
-right_count = 0
+# Constants
 wheel_radius = 0.027  # in meters
 wheel_base = 3.05 * 0.222  # distance between wheels in meters
 ticks_per_revolution = 19 * 47  #
@@ -200,14 +195,23 @@ class Side:
 
 
 class Vehicle:
+    PUBLISH_INTERVAL = 8 # Only publish status updates every few iterations.
+    UPDATE_DELAY = 0.02
+
     def __init__(self):
+        """Initialises the vehicle and starts the controllers.
+        """
+        # Setup each side.
         self.left = Side(6, 5, 13, 19, 26, "left")
         self.right = Side(16, 7, 12, 20, 21, "right")
-        self.position = PositionAccumulator()
-        self.status = OdometryCurrent()
 
+        # Position and velocity.
+        self.position = PositionAccumulatorLogged()
+        self.angular_velocity, self.rotation_centre, self.linear_velocity = 0, 0, 0
         self.last_update = time.time()
 
+        # Start the motor control threads.
+        self.publish_count = Vehicle.PUBLISH_INTERVAL
         thread = threading.Thread(target=self.run, args=())
         thread.start()
 
@@ -226,7 +230,7 @@ class Vehicle:
                                         rotation from the axle center (right is positive) and the linear velocity
                                         (forwards is positive).
         """
-        # See the jupyter notebook.
+        # See the wheel_calculations jupyter notebook for the derivation of these functions.
         def angular_velocity(c1, c2, aw):
             return -(c2 - c1) / aw
 
@@ -280,18 +284,37 @@ class Vehicle:
         self.right.update()
 
         # Calculate the change in vehicle position.
-        angular_velocity, rotation_centre, linear_velocity = self.calculate_velocity(self.left.get_speed(), self.right.get_speed())
-        forwards_change, sideways_change, angle_change = self.predict(angular_velocity, rotation_centre, linear_velocity, timestep)
+        self.angular_velocity, self.rotation_centre, self.linear_velocity = self.calculate_velocity(self.left.get_speed(), self.right.get_speed())
+        forwards_change, sideways_change, angle_change = self.predict(self.angular_velocity, self.rotation_centre, self.linear_velocity, timestep)
         self.position.add_relative(forwards_change, sideways_change, angle_change)
-        logging.debug(self.position)
+        self.position.add_current(self.angular_velocity, self.rotation_centre, self.linear_velocity)
+        
+        # Report the current position if needed
+        self.publish_count += 1
+        if self.publish_count >= Vehicle.PUBLISH_INTERVAL:
+            self.publish_count = 0
+            self._publish_status()
 
     def run(self) -> None:
         """Calls update continuously in a loop."""
         while True:
             self.update()
-            time.sleep(0.02)
+            time.sleep(Vehicle.UPDATE_DELAY)
 
-    def move_to_heading(self, heading: float, distance: int, speed: float = 100):
+    def _publish_status(self) -> None:
+        """Publishes the current status to MQTT
+        """
+        status = OdometryCurrent(
+            heading=self.position.heading,
+            position=(self.position.x, self.position.y),
+            speed=self.linear_velocity,
+            angular_velocity=self.angular_velocity,
+            moving=self.is_moving(),
+            turn_radius=self.rotation_centre
+        )
+        status.publish()
+
+    def move_to_heading(self, heading: float, distance: int, speed: float = 100): # XXX: Replace
         """Moves the platform to a specific relative heading and position.
 
         Args:
@@ -350,7 +373,10 @@ class Vehicle:
         Returns:
             bool: True if currently moving.
         """
-        return (not self.left.pos_target_reached()) and not (self.right.pos_target_reached())
+        # return (not self.left.pos_target_reached()) and not (self.right.pos_target_reached())
+        ANGULAR_ERROR = 1e-2
+        LINEAR_ERROR = 1e-3
+        return abs(self.angular_velocity) < ANGULAR_ERROR and abs(self.linear_velocity) < LINEAR_ERROR
 
     def wait_for_movement(self):
         """Waits until the movement operation is complete."""
@@ -358,7 +384,7 @@ class Vehicle:
             time.sleep(0.1)
         logging.debug(f"Vehicle movement finished")
 
-    def _calculate_heading(self, heading: float) -> Tuple[float, float]:
+    def _calculate_heading(self, heading: float) -> Tuple[float, float]: # XXX: Replace
         """Calculates the linear distance to move each wheel to turn to a specific heading.
 
         Currently turns from speed center of the axle.
@@ -382,12 +408,12 @@ class Vehicle:
     #     self.move_to_heading(-theta, 0, speed)  # Correct orientation
 
     # this one returns to origin by reversing actions
-    def return_to_origin(self, speed: float = 1):
+    def return_to_origin(self, speed: float = 1): # XXX: Replace
         raise NotImplementedError("Return to origin not implemented")
         # return self.return_to_origin_simple(speed)
         return self.return_to_origin_direct(speed)
 
-    def _calculate_origin_move(self, history) -> Tuple[float, float]:
+    def _calculate_origin_move(self, history) -> Tuple[float, float]: # XXX: Replace
         """Calculates the relative heading and distance to return to the origin."""
 
         def polar_to_cartesian(heading: float, distance: float) -> Tuple[float, float]:
@@ -460,7 +486,7 @@ class Vehicle:
         new_head, new_dist = cartesian_to_polar(x_move, y_move)
         return new_head, new_dist
 
-    def return_to_origin_direct(self, speed: float = 1, max_dist=0.5):
+    def return_to_origin_direct(self, speed: float = 1, max_dist=0.5):# XXX: Replace
         """Calculates the angle to face directly at the home position and drive directly to it.
 
         Args:
@@ -501,7 +527,7 @@ class Vehicle:
         logging.debug(f"Done returning to home.")
         self.update_odometry()
 
-    def return_to_origin_simple(self, speed: float = 0.5):
+    def return_to_origin_simple(self, speed: float = 0.5):# XXX: Replace
         """Reverse all previous movements to return to the origin."""
         raise NotImplementedError("Return to origin not implemented")
         logging.info("Returning to origin")
@@ -536,7 +562,7 @@ class Vehicle:
 
 
 # Callback functions for MQTT topics
-def parse_and_move(arg):
+def parse_and_move(arg):# XXX: Replace
     """Example of published message on topic of robot/move_to_heading with payload:
     {
     "heading": 90,
@@ -557,7 +583,7 @@ def parse_and_move(arg):
     vehicle.move_to_heading(heading, distance, speed)
 
 
-def parse_and_return(arg):
+def parse_and_return(arg):# XXX: Replace
     """Returns back to the starting point.
 
     Args:
@@ -567,15 +593,8 @@ def parse_and_return(arg):
     vehicle.return_to_origin(0.4)
 
 
-# def move_to_heading_callback(arg):
-#     parse_and_move(client, message, vehicle.move_to_heading)
-
-# def return_to_origin_callback(client, userdata, message):
-#     vehicle.return_to_origin()
-
-
 # Function to encapsulate the MQTT setup
-def initialize_mqtt(vehicle: Vehicle):
+def initialize_mqtt():
     """Initializes MQTT and sets up the topic subscriptions and callbacks."""
 
     # Define callback methods paired with their corresponding MQTT topics
@@ -599,4 +618,4 @@ if __name__ == "__main__":
     vehicle = Vehicle()
 
     # Initialize MQTT with the vehicle instance
-    initialize_mqtt(vehicle)
+    initialize_mqtt()

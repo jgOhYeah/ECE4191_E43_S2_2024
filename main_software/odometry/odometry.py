@@ -16,6 +16,7 @@ from defines import (
     mqtt_client,
     publish_mqtt,
     OdometryCurrent,
+    MoveSpeed
 )
 
 # Logging
@@ -41,9 +42,10 @@ from digitalfilter import create_filter
 from kalman import PositionAccumulator, PositionAccumulatorLogged
 
 # Constants
-wheel_radius = 0.027  # in meters
-wheel_base = 3.05 * 0.222  # distance between wheels in meters
-ticks_per_revolution = 19 * 47  #
+WHEEL_RADIUS = 0.027  # in meters
+WHEEL_BASE = 3.05 * 0.222  # distance between wheels in meters
+TICKS_PER_REVOLUTION = 19 * 47  #
+MAX_MOTOR_SPEED = 1700 # Max speed in ticks per second.
 
 class Side:
     """Class for controlling the motor and encoder on a side."""
@@ -156,16 +158,16 @@ class Side:
         self._drive_to_angle_relative(self._dist_to_angle(dist), speed)
 
     def _dist_to_angle(self, dist: float) -> float:
-        return dist / wheel_radius
+        return dist / WHEEL_RADIUS
 
     def _angle_to_steps(self, angle: float) -> int:
-        return int(angle / (2 * math.pi) * ticks_per_revolution)
+        return int(angle / (2 * math.pi) * TICKS_PER_REVOLUTION)
 
     def _steps_to_angle(self, steps: int) -> float:
-        return steps / ticks_per_revolution * 2 * math.pi
+        return steps / TICKS_PER_REVOLUTION * 2 * math.pi
 
     def _angle_to_dist(self, angle: float) -> float:
-        return angle * wheel_radius
+        return angle * WHEEL_RADIUS
 
     def pos_target_reached(self) -> bool:
         """Checks if the motors have reached their target.
@@ -179,6 +181,21 @@ class Side:
     def stop(self):
         """Stops the motor."""
         self.pos_control.set_target_speed(0)
+    
+    def set_speed(self, speed:float) -> None:
+        """Sets the motor to a given speed in m/s.
+
+        Limits the maximum speed to 2000 steps / second as that is near the motor's top speed.
+
+        Args:
+            speed (float): The speed in m/s.
+        """
+        speed = self._angle_to_steps(self._dist_to_angle(speed))
+        if speed > MAX_MOTOR_SPEED:
+            logging.warning(f"Max motor speed of {MAX_MOTOR_SPEED} steps/s reached, will not go at requested {speed} steps/s.")
+            speed = MAX_MOTOR_SPEED
+
+        self.pos_control.set_target_speed(speed)
 
     def get_speed(self) -> float:
         """Gets the current speed of the motor in m/s.
@@ -215,7 +232,7 @@ class Vehicle:
         thread = threading.Thread(target=self.run, args=())
         thread.start()
 
-    def calculate_velocity(
+    def _calculate_velocity(
         self, left_speed: float, right_speed: float
     ) -> Tuple[float, float, float]:
         """Calculates the angular velocity, center of rotation relative to the middle of the robot and tangential
@@ -241,10 +258,27 @@ class Vehicle:
                 return aw * (-c1 - c2) / (2 * (c1 - c2))
 
         return (
-            angular_velocity(left_speed, right_speed, wheel_base),
-            centre_rad(left_speed, right_speed, wheel_base),
+            angular_velocity(left_speed, right_speed, WHEEL_BASE),
+            centre_rad(left_speed, right_speed, WHEEL_BASE),
             (left_speed + right_speed) / 2
         )
+
+    def _calculate_speeds(self, angular_velocity:float, centre_rad:float, speed:float) -> Tuple[float, float]:
+        """Calculates the left and right motor speeds required.
+
+        Args:
+            angular_velocity (float): _description_
+            centre_rad (float): _description_
+            speed (float): _description_
+
+        Returns:
+            Tuple[float, float]: Left and right speeds in m/s respectively.
+        """
+        angular_contribution = WHEEL_BASE * angular_velocity / 2
+        return [
+            -angular_contribution + speed,
+            angular_contribution + speed
+        ]
 
     def predict(self, angular_velocity:float, centre_radius:float, tangential_speed:float, timestep:float) -> Tuple[float, float, float]:
         """Predicts the left-right change, forwards change and new angle.
@@ -284,7 +318,7 @@ class Vehicle:
         self.right.update()
 
         # Calculate the change in vehicle position.
-        self.angular_velocity, self.rotation_centre, self.linear_velocity = self.calculate_velocity(self.left.get_speed(), self.right.get_speed())
+        self.angular_velocity, self.rotation_centre, self.linear_velocity = self._calculate_velocity(self.left.get_speed(), self.right.get_speed())
         forwards_change, sideways_change, angle_change = self.predict(self.angular_velocity, self.rotation_centre, self.linear_velocity, timestep)
         self.position.add_relative(forwards_change, sideways_change, angle_change)
         self.position.add_current(self.angular_velocity, self.rotation_centre, self.linear_velocity)
@@ -391,7 +425,7 @@ class Vehicle:
 
         Takes a heading and converts it to motor distances (left, right).
         """
-        dist = heading / math.pi * wheel_base / 2
+        dist = heading / math.pi * WHEEL_BASE / 2
         return dist, -dist
 
     # def return_to_origin(self, speed:float=0.5):
@@ -559,48 +593,25 @@ class Vehicle:
 
         # Update odometry after movement
         self.update_odometry()
+    
+    def move_speed(self, move_speed:MoveSpeed) -> None:
+        """Commands the vehicle to move with a given speed.
 
-
-# Callback functions for MQTT topics
-def parse_and_move(arg):# XXX: Replace
-    """Example of published message on topic of robot/move_to_heading with payload:
-    {
-    "heading": 90,
-    "revolutions": 2
-    }
-
-    - This suscribes topic robot/move_to_heading
-    - receives the message, triggering move_to_heading_callback
-    - callback parses the payload and instructs robot to turn a 90-degree heading and move forwards by 2 revolutions
-    """
-    payload = arg
-    heading = payload.get("heading", 0)
-    distance = payload.get("distance", 0)
-    speed = payload.get("speed", 2000)
-
-    # Print the received message and parsed values
-    logging.info(f"Setting position: {heading=}, {distance=}, {speed=}")
-    vehicle.move_to_heading(heading, distance, speed)
-
-
-def parse_and_return(arg):# XXX: Replace
-    """Returns back to the starting point.
-
-    Args:
-        arg (JSON object): Currently unused.
-    """
-    vehicle.move_to_heading(0, -0.2, 0.3)
-    vehicle.return_to_origin(0.4)
-
+        Args:
+            move_speed (MoveSpeed): The object containing the command
+        """
+        logging.debug(f"Got move command, {move_speed}")
+        left, right = self._calculate_speeds(move_speed.angular_velocity, move_speed.turn_radius, move_speed.speed)
+        self.left.set_speed(left)
+        self.right.set_speed(right)
 
 # Function to encapsulate the MQTT setup
-def initialize_mqtt():
+def initialize_mqtt(vehicle:Vehicle):
     """Initializes MQTT and sets up the topic subscriptions and callbacks."""
 
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
-        TopicMethodPair(MQTTTopics.ODOMETRY_MOVE, parse_and_move),
-        TopicMethodPair(MQTTTopics.ODOMETRY_GO_HOME, parse_and_return),
+        MoveSpeed(callback=vehicle.move_speed).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs
@@ -616,6 +627,5 @@ if __name__ == "__main__":
 
     # Create the vehicle instance
     vehicle = Vehicle()
-
     # Initialize MQTT with the vehicle instance
-    initialize_mqtt()
+    initialize_mqtt(vehicle)

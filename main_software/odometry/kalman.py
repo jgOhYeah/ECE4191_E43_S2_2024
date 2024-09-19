@@ -35,6 +35,7 @@ class PositionAccumulator:
         self.y += forwards_change*math.sin(self.heading) + sideways_change*math.cos(self.heading)
         self.x += forwards_change*math.cos(self.heading) + sideways_change*math.sin(self.heading)
         self.heading += heading_change
+        # TODO: Limit windup.
     
     def __repr__(self) -> str:
         """Generates a string representation.

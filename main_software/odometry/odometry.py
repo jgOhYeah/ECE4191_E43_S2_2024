@@ -17,7 +17,7 @@ from defines import (
     publish_mqtt,
     OdometryCurrent,
     MoveSpeed,
-    MovePosition
+    MovePosition,
 )
 
 # Logging
@@ -38,7 +38,14 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
-from motor_control import MotorAccelerationController, MotorSpeedController, MotorPositionController, PIControllerLogged
+from motor_control import (
+    MotorAccelerationController,
+    MotorSpeedController,
+    MotorPositionController,
+    PIController,
+    PIControllerLogged,
+    PIControllerAngle
+)
 from digitalfilter import create_filter
 from kalman import PositionAccumulator, PositionAccumulatorLogged
 
@@ -46,7 +53,8 @@ from kalman import PositionAccumulator, PositionAccumulatorLogged
 WHEEL_RADIUS = 0.027  # in meters
 WHEEL_BASE = 3.05 * 0.222  # distance between wheels in meters
 TICKS_PER_REVOLUTION = 19 * 47  #
-MAX_MOTOR_SPEED = 1700 # Max speed in ticks per second.
+MAX_MOTOR_SPEED = 1700  # Max speed in ticks per second.
+
 
 class Side:
     """Class for controlling the motor and encoder on a side."""
@@ -80,12 +88,14 @@ class Side:
         accel_on = 5000
         accel_off = 20000
         accel_control = MotorAccelerationController(
-            PIControllerLogged(accel_kp, accel_ki, accel_windup, name, "acceleration.csv"),
+            PIControllerLogged(
+                accel_kp, accel_ki, accel_windup, name, "acceleration.csv"
+            ),
             motor,
             encoder,
             accel_on,
             accel_off,
-            create_filter(4, 20, 1/0.02)
+            create_filter(4, 20, 1 / 0.02),
         )
 
         # Create the speed controller
@@ -95,7 +105,7 @@ class Side:
         speed_control = MotorSpeedController(
             PIControllerLogged(speed_kp, speed_ki, speed_windup, name, "speed.csv"),
             accel_control,
-            create_filter(4, 20, 1/0.02)
+            create_filter(4, 20, 1 / 0.02),
         )
         # test_acceleration(accel_control, speed_control)
         # test_speed(speed_control)
@@ -106,7 +116,7 @@ class Side:
 
         self.pos_control = MotorPositionController(
             PIControllerLogged(pos_kp, pos_ki, pos_windup, name, "position.csv"),
-            speed_control
+            speed_control,
         )
 
     def _drive_to_steps(self, steps: int, speed: int = 100):
@@ -182,8 +192,8 @@ class Side:
     def stop(self):
         """Stops the motor."""
         self.pos_control.set_target_speed(0)
-    
-    def set_speed(self, speed:float) -> None:
+
+    def set_speed(self, speed: float) -> None:
         """Sets the motor to a given speed in m/s.
 
         Limits the maximum speed to 2000 steps / second as that is near the motor's top speed.
@@ -193,7 +203,9 @@ class Side:
         """
         speed = self._angle_to_steps(self._dist_to_angle(speed))
         if speed > MAX_MOTOR_SPEED:
-            logging.warning(f"Max motor speed of {MAX_MOTOR_SPEED} steps/s reached, will not go at requested {speed} steps/s.")
+            logging.warning(
+                f"Max motor speed of {MAX_MOTOR_SPEED} steps/s reached, will not go at requested {speed} steps/s."
+            )
             speed = MAX_MOTOR_SPEED
 
         self.pos_control.set_target_speed(speed)
@@ -207,18 +219,16 @@ class Side:
         return self._angle_to_dist(self._steps_to_angle(self.pos_control.get_speed()))
 
     def update(self) -> None:
-        """Updates the controllers.
-        """
+        """Updates the controllers."""
         self.pos_control.update()
 
 
 class Vehicle:
-    PUBLISH_INTERVAL = 8 # Only publish status updates every few iterations.
+    PUBLISH_INTERVAL = 8  # Only publish status updates every few iterations.
     UPDATE_DELAY = 0.02
 
     def __init__(self):
-        """Initialises the vehicle and starts the controllers.
-        """
+        """Initialises the vehicle and starts the controllers."""
         # Setup each side.
         self.left = Side(6, 5, 13, 19, 26, "left")
         self.right = Side(16, 7, 12, 20, 21, "right")
@@ -248,6 +258,7 @@ class Vehicle:
                                         rotation from the axle center (right is positive) and the linear velocity
                                         (forwards is positive).
         """
+
         # See the wheel_calculations jupyter notebook for the derivation of these functions.
         def angular_velocity(c1, c2, aw):
             return -(c2 - c1) / aw
@@ -261,10 +272,12 @@ class Vehicle:
         return (
             angular_velocity(left_speed, right_speed, WHEEL_BASE),
             centre_rad(left_speed, right_speed, WHEEL_BASE),
-            (left_speed + right_speed) / 2
+            (left_speed + right_speed) / 2,
         )
 
-    def _calculate_speeds(self, angular_velocity:float, speed:float) -> Tuple[float, float]:
+    def _calculate_speeds(
+        self, angular_velocity: float, speed: float
+    ) -> Tuple[float, float]:
         """Calculates the left and right motor speeds required.
 
         Args:
@@ -275,12 +288,15 @@ class Vehicle:
             Tuple[float, float]: Left and right speeds in m/s respectively.
         """
         angular_contribution = WHEEL_BASE * angular_velocity / 2
-        return [
-            -angular_contribution + speed,
-            angular_contribution + speed
-        ]
+        return [-angular_contribution + speed, angular_contribution + speed]
 
-    def predict(self, angular_velocity:float, centre_radius:float, tangential_speed:float, timestep:float) -> Tuple[float, float, float]:
+    def predict(
+        self,
+        angular_velocity: float,
+        centre_radius: float,
+        tangential_speed: float,
+        timestep: float,
+    ) -> Tuple[float, float, float]:
         """Predicts the left-right change, forwards change and new angle.
 
         Args:
@@ -304,10 +320,9 @@ class Vehicle:
             sideways = 0
 
         return forwards, sideways, angle_change
-    
+
     def update(self) -> None:
-        """Updates the vehicle state.
-        """
+        """Updates the vehicle state."""
         # Calculate the time step.
         timestamp = time.time()
         timestep = timestamp - self.last_update
@@ -318,11 +333,17 @@ class Vehicle:
         self.right.update()
 
         # Calculate the change in vehicle position.
-        self.angular_velocity, self.rotation_centre, self.linear_velocity = self._calculate_velocity(self.left.get_speed(), self.right.get_speed())
-        forwards_change, sideways_change, angle_change = self.predict(self.angular_velocity, self.rotation_centre, self.linear_velocity, timestep)
+        self.angular_velocity, self.rotation_centre, self.linear_velocity = (
+            self._calculate_velocity(self.left.get_speed(), self.right.get_speed())
+        )
+        forwards_change, sideways_change, angle_change = self.predict(
+            self.angular_velocity, self.rotation_centre, self.linear_velocity, timestep
+        )
         self.position.add_relative(forwards_change, sideways_change, angle_change)
-        self.position.add_current(self.angular_velocity, self.rotation_centre, self.linear_velocity)
-        
+        self.position.add_current(
+            self.angular_velocity, self.rotation_centre, self.linear_velocity
+        )
+
         # Report the current position if needed
         self.publish_count += 1
         if self.publish_count >= Vehicle.PUBLISH_INTERVAL:
@@ -336,19 +357,20 @@ class Vehicle:
             time.sleep(Vehicle.UPDATE_DELAY)
 
     def _publish_status(self) -> None:
-        """Publishes the current status to MQTT
-        """
+        """Publishes the current status to MQTT"""
         status = OdometryCurrent(
             heading=self.position.heading,
             position=(self.position.x, self.position.y),
             speed=self.linear_velocity,
             angular_velocity=self.angular_velocity,
             moving=self.is_moving(),
-            turn_radius=self.rotation_centre
+            turn_radius=self.rotation_centre,
         )
         status.publish()
 
-    def move_to_heading(self, heading: float, distance: int, speed: float = 100): # XXX: Replace
+    def move_to_heading(
+        self, heading: float, distance: int, speed: float = 100
+    ):  # XXX: Replace
         """Moves the platform to a specific relative heading and position.
 
         Args:
@@ -410,7 +432,10 @@ class Vehicle:
         # return (not self.left.pos_target_reached()) and not (self.right.pos_target_reached())
         ANGULAR_ERROR = 1e-2
         LINEAR_ERROR = 1e-3
-        return not (abs(self.angular_velocity) < ANGULAR_ERROR and abs(self.linear_velocity) < LINEAR_ERROR)
+        return not (
+            abs(self.angular_velocity) < ANGULAR_ERROR
+            and abs(self.linear_velocity) < LINEAR_ERROR
+        )
 
     def wait_for_movement(self):
         """Waits until the movement operation is complete."""
@@ -418,7 +443,7 @@ class Vehicle:
             time.sleep(0.1)
         logging.debug(f"Vehicle movement finished")
 
-    def _calculate_heading(self, heading: float) -> Tuple[float, float]: # XXX: Replace
+    def _calculate_heading(self, heading: float) -> Tuple[float, float]:  # XXX: Replace
         """Calculates the linear distance to move each wheel to turn to a specific heading.
 
         Currently turns from speed center of the axle.
@@ -442,13 +467,95 @@ class Vehicle:
     #     self.move_to_heading(-theta, 0, speed)  # Correct orientation
 
     # this one returns to origin by reversing actions
-    def return_to_origin(self, speed: float = 1): # XXX: Replace
+    def return_to_origin(self, speed: float = 1):  # XXX: Replace
         raise NotImplementedError("Return to origin not implemented")
         # return self.return_to_origin_simple(speed)
         return self.return_to_origin_direct(speed)
 
-    def _calculate_origin_move(self, history) -> Tuple[float, float]: # XXX: Replace
+    def _calculate_origin_move(self, history) -> Tuple[float, float]:  # XXX: Replace
         """Calculates the relative heading and distance to return to the origin."""
+
+        # State variables that acumulate movements
+        x_move = 0
+        y_move = 0
+        heading = math.pi  # Turn around as the first step.
+
+        # Process and sum movements
+        for i in range(len(history) - 1, -1, -1):
+            movement = history[i]
+            logging.debug(
+                f"{x_move=}, {y_move=}, {heading=}, About to reverse {i=} {movement}"
+            )
+            if movement.type == MovementType.MOVE:
+                # Move this distance in the current heading.
+                x_change, y_change = polar_to_cartesian(heading, movement.value)
+                x_move += x_change
+                y_move += y_change
+            elif movement.type == MovementType.TURN:
+                # Adjust the heading for the next movement.
+                heading -= movement.value  # Opposite angles.
+
+        # X and Y have the summed positions. Let's convert this back to polar and send it.
+        new_head, new_dist = cartesian_to_polar(x_move, y_move)
+        return new_head, new_dist
+
+    def return_to_origin_direct(self, speed: float = 1, max_dist=0.5):  # XXX: Replace
+        """Calculates the angle to face directly at the home position and drive directly to it.
+
+        Args:
+            speed (float, optional): The speed to drive at. Defaults to 0.5.
+            max_dist (float, optional) The maximum distance to drive at a time.
+        """
+        raise NotImplementedError("Return to origin not implemented")
+        logging.info("Returning directly to origin")
+        new_head, new_dist = self._calculate_origin_move(self.movement_history)
+
+        # Move back. Perform rotation and first leg of journey.
+        logging.debug(
+            f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})"
+        )
+        if new_dist > max_dist:
+            # The distance is too big to cover in one go. One of the motors runs slower than the other, so the dodgy way to fix this is to use many short hops to allow the direction / encoders to be mostly corrected at the end of each hop.
+            logging.debug(f"Moving back in multiple steps")
+            self.move_to_heading(new_head, max_dist, speed)
+            new_dist -= max_dist
+            self.wait_for_movement()
+
+            # Move the rest of the way
+            while new_dist > 0:
+                self.move_to_heading(0, max_dist, speed)
+                new_dist -= max_dist
+                self.wait_for_movement()
+        else:
+            logging.debug(f"Moving back in one go")
+            self.move_to_heading(new_head, new_dist, speed)
+            self.wait_for_movement()
+
+        # Rotate back to the original orientation
+        logging.debug("Rotating to the original orientation")
+        # We are still going forwards when going back to origin, so steps in the motors are still incrementing. This means we can't use `self.right.drive_to_dist(0)``
+        self.move_to_heading(-new_head, 0)
+        self.wait_for_movement()
+
+        logging.debug(f"Done returning to home.")
+        self.update_odometry()
+
+    def move_speed(self, move_speed: MoveSpeed) -> None:
+        """Commands the vehicle to move with a given speed.
+
+        Args:
+            move_speed (MoveSpeed): The object containing the command
+        """
+        logging.debug(f"Got move command, {move_speed}")
+        left, right = self._calculate_speeds(
+            move_speed.angular_velocity, move_speed.speed
+        )
+        self.left.set_speed(left)
+        self.right.set_speed(right)
+
+    def move_position(self, move_position: MovePosition) -> None:
+        """Commands the vehicle to move to a specific position."""
+        logging.debug(f"Got move to position command {move_position}")
 
         def polar_to_cartesian(heading: float, distance: float) -> Tuple[float, float]:
             """Converts polar coordinates into cartesian representation.
@@ -496,95 +603,63 @@ class Vehicle:
 
             return angle, distance
 
-        # State variables that acumulate movements
-        x_move = 0
-        y_move = 0
-        heading = math.pi  # Turn around as the first step.
+        def calculate_target_move(
+            current: Tuple[float, float], target: Tuple[float, float]
+        ) -> Tuple[float, float]:
+            """Calculates a target heading and distance based off where we are now and where we want to go.
 
-        # Process and sum movements
-        for i in range(len(history) - 1, -1, -1):
-            movement = history[i]
-            logging.debug(
-                f"{x_move=}, {y_move=}, {heading=}, About to reverse {i=} {movement}"
-            )
-            if movement.type == MovementType.MOVE:
-                # Move this distance in the current heading.
-                x_change, y_change = polar_to_cartesian(heading, movement.value)
-                x_move += x_change
-                y_move += y_change
-            elif movement.type == MovementType.TURN:
-                # Adjust the heading for the next movement.
-                heading -= movement.value  # Opposite angles.
+            Args:
+                current (Tuple[float, float]): Current x and y coordinates.
+                target (Tuple[float, float]): Target x and y coordinates.
 
-        # X and Y have the summed positions. Let's convert this back to polar and send it.
-        new_head, new_dist = cartesian_to_polar(x_move, y_move)
-        return new_head, new_dist
+            Returns:
+                Tuple[float, float]: The heading to aim for relative to the start position and how far to go.
+            """
+            x_change = target[0] - current[0]
+            y_change = target[1] - current[1]
+            target_heading, target_distance = cartesian_to_polar(x_change, y_change)
+            return target_heading, target_distance
 
-    def return_to_origin_direct(self, speed: float = 1, max_dist=0.5):# XXX: Replace
-        """Calculates the angle to face directly at the home position and drive directly to it.
-
-        Args:
-            speed (float, optional): The speed to drive at. Defaults to 0.5.
-            max_dist (float, optional) The maximum distance to drive at a time.
-        """
-        raise NotImplementedError("Return to origin not implemented")
-        logging.info("Returning directly to origin")
-        new_head, new_dist = self._calculate_origin_move(self.movement_history)
-
-        # Move back. Perform rotation and first leg of journey.
-        logging.debug(
-            f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})"
+        heading_control = PIControllerAngle(
+            0.01, 0.001, 1, "position", "heading"
         )
-        if new_dist > max_dist:
-            # The distance is too big to cover in one go. One of the motors runs slower than the other, so the dodgy way to fix this is to use many short hops to allow the direction / encoders to be mostly corrected at the end of each hop.
-            logging.debug(f"Moving back in multiple steps")
-            self.move_to_heading(new_head, max_dist, speed)
-            new_dist -= max_dist
-            self.wait_for_movement()
+        heading_control.set_limits(-0.2, 0.2)
+        position_control = PIControllerLogged(
+            0.01, 0.001, 1, "position", "speed"
+        )
+        position_control.set_limits(-0.2, 0.2)
+        prev_time = time.time()
 
-            # Move the rest of the way
-            while new_dist > 0:
-                self.move_to_heading(0, max_dist, speed)
-                new_dist -= max_dist
-                self.wait_for_movement()
-        else:
-            logging.debug(f"Moving back in one go")
-            self.move_to_heading(new_head, new_dist, speed)
-            self.wait_for_movement()
+        def update():
+            # Update the times.
+            cur_time = time.time()
+            timestep = cur_time - prev_time
+            prev_time = cur_time
 
-        # Rotate back to the original orientation
-        logging.debug("Rotating to the original orientation")
-        # We are still going forwards when going back to origin, so steps in the motors are still incrementing. This means we can't use `self.right.drive_to_dist(0)``
-        self.move_to_heading(-new_head, 0)
-        self.wait_for_movement()
+            # Calculate and set the desired heading and distance.
+            target_heading, target_distance = calculate_target_move(
+                (self.position.x, self.position.y), move_position.position
+            )
+            heading_control.set_target(target_heading)
+            position_control.set_target(target_distance)
 
-        logging.debug(f"Done returning to home.")
-        self.update_odometry()
-    
-    def move_speed(self, move_speed:MoveSpeed) -> None:
-        """Commands the vehicle to move with a given speed.
+            # Get the outputs.
+            new_angular_v = heading_control.update(self.position.heading, timestep)
 
-        Args:
-            move_speed (MoveSpeed): The object containing the command
-        """
-        logging.debug(f"Got move command, {move_speed}")
-        left, right = self._calculate_speeds(move_speed.angular_velocity, move_speed.speed)
-        self.left.set_speed(left)
-        self.right.set_speed(right)
-    
-    def move_position(self, move_position:MovePosition) -> None:
-        """Commands the vehicle to move to a specific position."""
-        logging.debug(f"Got move to position command {move_position}")
+        while True:
+            time.sleep(0.1)
+
         raise NotImplementedError("Moving to a fixed position is not implemented yet.")
 
+
 # Function to encapsulate the MQTT setup
-def initialize_mqtt(vehicle:Vehicle):
+def initialize_mqtt(vehicle: Vehicle):
     """Initializes MQTT and sets up the topic subscriptions and callbacks."""
 
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
         MoveSpeed(callback=vehicle.move_speed).topic_method_pair(),
-        MovePosition(callback=vehicle.move_position).topic_method_pair()
+        MovePosition(callback=vehicle.move_position).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs

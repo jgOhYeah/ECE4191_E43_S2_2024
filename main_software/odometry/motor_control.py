@@ -4,7 +4,6 @@ Classes to aid with motor control."""
 # Import the helper functions in defines.py
 from typing import Callable, Tuple
 
-# import sys
 import os
 
 # Logging
@@ -16,6 +15,7 @@ from enum import Enum
 from gpiozero import Motor, RotaryEncoder
 import threading
 import time
+import math
 
 from digitalfilter import LiveLFilter
 
@@ -52,7 +52,7 @@ class PIController:
             float: The controller output.
         """
         # Calculate the error.
-        error = current - self.target
+        error = self.error(current, self.target)
 
         # Calculate the theoretical output.
         self.integral += (
@@ -65,6 +65,18 @@ class PIController:
 
         # Done
         return limited
+
+    def error(self, current:float, target:float) -> float:
+        """Calculates the error.
+
+        Args:
+            current (float): The current measurement.
+            target (float): The target.
+
+        Returns:
+            float: By default, current - target.
+        """
+        return current - target
 
     def limit(self, value: float) -> float:
         """Limits the given value to within the bounds set by self.min_output and self.max_output
@@ -130,6 +142,18 @@ class PIControllerLogged(PIController):
 
     def close(self):
         self.log_file.close()
+
+class PIControllerAngle(PIControllerLogged):
+    """Limits the maximum angles in error calculations to +- pi
+    """
+
+    def error(self, current: float, target: float) -> float:
+        error = current - target
+        error = error % (2*math.pi)
+        if error > math.pi:
+            error -= 2*math.pi
+        
+        return error
 
 class MotorControlMode(Enum):
     """Enumerator for whether the motor is trying to maintain speed or position."""

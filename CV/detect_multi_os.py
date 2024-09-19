@@ -12,6 +12,11 @@ import json
 from scipy.optimize import curve_fit 
 from collections import deque  
 import platform
+from ultralytics import YOLO
+import subprocess
+import logging
+
+
 
 ## Acknowledgements
 ## This code is based on the following repos:
@@ -29,69 +34,127 @@ import platform
 
 
 
+# Set up logging
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    filename='debug.log',
+                    filemode='w')
+
+logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# MQTT setup
-MQTT_BROKER = "localhost"  # or the IP of your Raspberry Pi if running on a different device
-MQTT_PORT = 1883
-MQTT_TOPIC = "/vision/balls"
+# MQTT setup (optional)
+mqtt_client = None
 try:
+    import paho.mqtt.client as mqtt
+    MQTT_BROKER = "localhost"
+    MQTT_PORT = 1883
+    MQTT_TOPIC = "/vision/balls"
     mqtt_client = mqtt.Client()
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
+    logger.info("MQTT client connected successfully")
 except Exception as e:
-    print(f"Failed to connect to MQTT broker: {e}")
-    mqtt_client = None
-
+    logger.warning(f"Failed to connect to MQTT broker: {e}. MQTT functionality will be disabled.")
 
 # Global variables
 outputFrame = None
 lock = threading.Lock()
 
+# loading the model
+model = YOLO("./saved_models/yolov8n/best.pt")
+logger.info("YOLO model loaded successfully")
 
 
 class VideoStream:
     def __init__(self, resolution=(640, 480), framerate=30):
-        self.stream = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Use DirectShow on Windows
-        if not self.stream.isOpened():
-            raise ValueError("Could not open video stream")
-        self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self.stream.set(3, resolution[0])
-        self.stream.set(4, resolution[1])
-        self.stream.set(cv2.CAP_PROP_FPS, framerate)
-        self.stopped = False
-        self.frame = None
+        self.resolution = resolution
+        self.framerate = framerate
         self.is_pi = platform.system() == "Linux" and platform.machine().startswith("arm")
+        self.frame = None 
+        self.stopped = False
+        self.stream = None
+        logger.info(f"Initializing VideoStream. Is Raspberry Pi: {self.is_pi}")
 
     def start(self):
-        if self.is_pi:
-            threading.Thread(target=self.update, args=()).start()
+        logger.info("Starting VideoStream")
+        threading.Thread(target=self.update, args=()).start()
         return self
 
     def update(self):
+        logger.info("Entering update method")
+        if self.is_pi:
+            self.update_pi()
+        else:
+            self.update_pc()
+
+    def update_pc(self):
+        logger.info("Entering update_pc method")
+        if self.stream is None:
+            logger.info("Initializing VideoCapture")
+            self.stream = cv2.VideoCapture(0)
+            self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            self.stream.set(3, self.resolution[0])
+            self.stream.set(4, self.resolution[1])
+        
         while not self.stopped:
-            ret, frame = self.stream.read()
-            if ret:
-                self.frame = frame
-            else:
-                print("Failed to capture frame")
+            if not self.stream.isOpened():
+                logger.error("Error: VideoCapture not opened")
+                time.sleep(1)
+                continue
+
+            ret, self.frame = self.stream.read()
+            if not ret:
+                logger.error("Error: Can't receive frame (stream end?). Exiting ...")
+                self.stopped = True
+                break
+            logger.debug("Frame captured successfully")
+            time.sleep(1/self.framerate)
+
+    def update_pi(self):
+        logger.info("Entering update_pi method")
+        while not self.stopped:
+            try:
+                cmd = [
+                    'libcamera-still',
+                    '-n', '--width', str(self.resolution[0]),
+                    '--height', str(self.resolution[1]),
+                    '--framerate', str(self.framerate),
+                    '-o', '-', '-t', '1', '--encoding', 'rgb'
+                ]
+                logger.debug(f"Running command: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, check=True)
+                image = np.frombuffer(result.stdout, dtype=np.uint8).reshape(self.resolution[1], self.resolution[0], 3)
+                self.frame = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                logger.debug("Frame captured successfully on Raspberry Pi")
+            except Exception as e:
+                logger.error(f"Error capturing frame on Raspberry Pi: {e}")
+                time.sleep(1)
+            time.sleep(1/self.framerate)
 
     def read(self):
-        if self.is_pi:
-            return self.frame
-        else:
-            ret, frame = self.stream.read()
-            if not ret:
-                print("Failed to capture frame")
-                return None
-            return frame
-
+        return self.frame
+    
     def stop(self):
+        logger.info("Stopping VideoStream")
         self.stopped = True
-        if self.stream.isOpened():
+        if not self.is_pi and self.stream is not None and self.stream.isOpened():
             self.stream.release()
+
+class FrameRateCalc:
+    def __init__(self):
+        self.freq = cv2.getTickFrequency()
+        self.prev_time= 0
+        self.curr_fps = 0
+
+    def update(self):
+        curr_time = cv2.getTickCount()
+        time_diff = (curr_time - self.prev_time) / self.freq
+        self.curr_fps = 1 / time_diff
+        self.prev_time = curr_time
+        return self.curr_fps
 
 class estimate_distance:
     ## Calclating the Approximate distance of the object by using the power law function. 
@@ -117,22 +180,14 @@ class estimate_distance:
     def estimate_distance(self, pixel_area):
         # Estimate the distance using the fitted function
         estimated_distance = self._estimation_function(pixel_area, *self.popt)
+        estimated_distance = max(0, min(estimated_distance, 2.5))
 
-        # Implement some bounds to handle extreme values
-        if estimated_distance < 0:
-            estimated_distance = 0
-        elif estimated_distance > 2.5:  # Assuming we don't expect distances beyond 2.5m
-            estimated_distance = 2.5
-
-        # Apply smoothing
         if self.distance_history:
-            smoothed_distance = (self.smoothing_factor * estimated_distance + 
-                                 (1 - self.smoothing_factor) * self.distance_history[-1])
+            smoothed_distance = (self.smoothing_factor * estimated_distance + (1 - self.smoothing_factor) * self.distance_history[-1])
         else:
             smoothed_distance = estimated_distance
 
         self.distance_history.append(smoothed_distance)
-        
         return smoothed_distance
 
     def print_calibration(self):
@@ -140,80 +195,6 @@ class estimate_distance:
         for dist, area in zip(self.known_distances, self.known_pixel_areas):
             estimated = self._estimation_function(area, *self.popt)
             print(f"Actual: {dist:.2f}m, Area: {area}, Estimated: {estimated:.2f}m")
-
-#Defining and parsing input arguments you can add to further customise the mode
-parser = argparse.ArgumentParser()
-parser.add_argument('--modeldir', help='Folder the .tflite file is located in',
-                    required=True)
-parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
-                    default='detect.tflite')
-parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
-                    default='labelmap.txt')
-parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.5,required=True)
-parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='640x480')
-parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
-                    action='store_true')
-
-args = parser.parse_args()
-
-MODEL_NAME = args.modeldir
-# some stuff from the github repo in Acknowledgements 
-GRAPH_NAME = args.graph
-LABELMAP_NAME = args.labels
-min_conf_threshold = float(args.threshold)
-resW, resH = args.resolution.split('x')
-imW, imH = int(resW), int(resH)
-use_TPU = args.edgetpu
-
-pkg = importlib.util.find_spec('tflite_runtime')
-if pkg:
-    from tflite_runtime.interpreter import Interpreter
-    if use_TPU:
-        from tflite_runtime.interpreter import load_delegate
-else:
-    from tensorflow.lite.python.interpreter import Interpreter
-    if use_TPU:
-        from tensorflow.lite.python.interpreter import load_delegate
-
-CWD_PATH = os.getcwd()
-PATH_TO_CKPT = os.path.join(CWD_PATH,MODEL_NAME,GRAPH_NAME)
-
-PATH_TO_LABELS = os.path.join(CWD_PATH,MODEL_NAME,LABELMAP_NAME)
-
-with open(PATH_TO_LABELS,'r') as f:
-    labels = [line.strip() for line in f.readlines()]
-
-if labels[0] == '???':
-    del(labels[0])
-
-
-interpreter = Interpreter(model_path=PATH_TO_CKPT)
-
-interpreter.allocate_tensors()
-
-# Get model details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-height = input_details[0]['shape'][1]
-width = input_details[0]['shape'][2]
-
-floating_model = (input_details[0]['dtype'] == np.float32)
-
-input_mean = 127.5
-input_std = 127.5
-
-# Check output layer name to determine if this model was created with TF2 or TF1,
-# because outputs are ordered differently for TF2 and TF1 models
-outname = output_details[0]['name']
-
-if ('StatefulPartitionedCall' in outname): # This is a TF2 model
-    boxes_idx, classes_idx, scores_idx = 1, 3, 0
-else: # This is a TF1 model
-    boxes_idx, classes_idx, scores_idx = 0, 1, 2
-
-videostream = None  # Declare videostream as a global variable
 
 def NMS(boxes,scores,threshold):
     # Non-Maximum Suppression (NMS) algorithm to remove overlapping bounding boxes
@@ -248,124 +229,67 @@ def NMS(boxes,scores,threshold):
     return keep
 
 def normalize_coordinates(x, y, image_width, image_height):
-    x_normalized = 2 * x / (image_width -1) - 1
-    y_normalized = 2 * y / (image_height - 1) -1 
-    print(f"x: {x}, y: {y}, image_width: {image_width}, image_height: {image_height}")
+    x_normalized = 2 * x / (image_width - 1)  - 1
+    y_normalized = 2 * y / (image_height - 1) - 1 
+    # print(f"x: {x}, y: {y}, image_width: {image_width}, image_height: {image_height}")
     return x_normalized, y_normalized
 
 
 
 def detect_object():
-    # Function to detect the object in the video stream
-    global outputFrame,lock, videostream
-    videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
-    time.sleep(1)
+    global outputFrame, lock, videostream
+    videostream = VideoStream(resolution=(640,640), framerate=30).start()
+    logger.info("VideoStream started in detect_object")
+    time.sleep(2)  # Give more time for camera initialization
 
-    frame_rate_calc = 1
-    freq = cv2.getTickFrequency()
-
+    frame_rate_calc = FrameRateCalc()
     distance_estimator = estimate_distance()
 
     while True:
-        # Setting Min and Max Box areas to get rid of false positives 
-        # these can be changed to suit the needs of the project by observing the results of false positives
-        MIN_BOX_AREA = 50
-        MAX_BOX_AREA = 400000
-        
-        #Starting timer for frame rate
-        t1 = cv2.getTickCount()
-        #Grabbing frame from video stream
-        frame1 = videostream.read()
-        if frame1 is None:
-            print("Failed to capture frame. Retrying...")
-            time.sleep(0.1)  # Wait a bit before trying again
+        frame = videostream.read()
+        if frame is None:
+            logger.warning("Frame is None, retrying...")
+            time.sleep(0.1)
             continue
+        
+        logger.debug(f"Frame shape: {frame.shape}")
+        fps = frame_rate_calc.update()
 
-        frame = frame1.copy()
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_resized = cv2.resize(frame_rgb, (width, height))
-        input_data = np.expand_dims(frame_resized, axis=0)
+        try:
+            results = model(frame)
 
-        if floating_model:
-            input_data = (np.float32(input_data) - input_mean) / input_std
+            for r in results:
+                boxes = r.boxes.xyxy.cpu().numpy()
+                scores = r.boxes.conf.cpu().numpy()
+                classes = r.boxes.cls.cpu().numpy()
 
-        # Perform the actual detection by running the model with the image as input
-        interpreter.set_tensor(input_details[0]['index'],input_data)
-        interpreter.invoke()
+                keep = NMS(boxes, scores, 0.5)
 
-        boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0] # Bounding box coordinates of detected objects
-        classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] # Class index of detected objects
-        scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
-        keep = NMS(boxes,scores,0.9)
-    #   for i in range(len(scores)):
-        frame_ball_detections = []
-        for i in keep:
-            #if ((scores[i] > min_conf_threshold) and (scores[i] <=1.0)):
-            if scores[i] > min_conf_threshold:
-                ymin = int(max(1,(boxes[i][0] * frame.shape[0])))
-                xmin = int(max(1,(boxes[i][1] * frame.shape[1])))
-                ymax = int(min(imH,(boxes[i][2] * frame.shape[0])))
-                xmax = int(min(imW,(boxes[i][3] * frame.shape[1])))
+                for i in keep:
+                    x1, y1, x2, y2 = map(int, boxes[i])
+                    confidence = float(scores[i])
+                    class_id = int(classes[i])
 
-                # Calculating the area 
-                box_area = (xmax - xmin) * (ymax-ymin)
-                confidence = int(scores[i]*100)
-                # Check to see if box size is within acceptable range. 
-                if (MIN_BOX_AREA <= box_area <= MAX_BOX_AREA):
-                    aspect_ratio = (xmax - xmin) / (ymax - ymin)
-                    modified_area = box_area * aspect_ratio
-                    if 0.7 <= aspect_ratio <= 1/0.7 or confidence>=75: 
-                        cv2.rectangle(frame,(xmin,ymin),(xmax,ymax),(10,255,0),2)
+                    if class_id in [0, 1]:
+                        class_name = "Ball" if class_id == 0 else "Box"
+                        logger.info(f"Detected {class_name} at ({x1},{y1},{x2},{y2}) with confidence {confidence:.2f}")
                         
-                        #DEBGGING 
-                        center_x = int((xmin + xmax) / 2)
-                        center_y = int((ymin + ymax) / 2)
-                        # print(f"Original box: {boxes[i]}")
-                        # print(f"Frame shape: {frame.shape}")
-                        # print(f"Calculated box: xmin={xmin}, ymin={ymin}, xmax={xmax}, ymax={ymax}")
-                        estimated_distance = distance_estimator.estimate_distance(modified_area)
+                        color = (0, 255, 0) if class_id == 0 else (255, 0, 0)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(frame, f'{class_name}: {confidence:.2f}', 
+                                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
-                        
+            if mqtt_client:
+                mqtt_client.publish(MQTT_TOPIC, json.dumps([{"class": class_name, "confidence": confidence, "bbox": [x1,y1,x2,y2]}]))
+        
+        except Exception as e:
+            logger.error(f"Error during detection: {e}")
 
-                        cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
-                        # Draw label
-                        object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
-                        label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
-                        labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
-                        label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
-                        cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
-                        cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
-                        xmin_norm, ymin_norm = normalize_coordinates(xmin,ymin,frame.shape[1],frame.shape[0])
-                        xmax_norm, ymax_norm = normalize_coordinates(xmax,ymax,frame.shape[1],frame.shape[0])
-                        # sending the info through MQTT
-                        frame_ball_detections.append({
-                            "xmin,xmax norm": [xmin_norm,xmax_norm],
-                            "ymin,ymax": [ymin_norm,ymax_norm],
-                            "center point": [center_x,center_y],
-                            "confidence": confidence,
-                            "area": modified_area,
-                            "distance": estimated_distance
-                        })
-
-                        print(frame.shape[0])
-                        print(f"Boundary Box at: x: [{xmin_norm:.2f},{xmax_norm:.2f}] [{xmin:.2f},{xmax:.2f}], y: [{ymin_norm:.2f},{ymax_norm:.2f}] [{ymin:.2f},{ymax:.2f}], area: {box_area:.4f}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
-
-                        
-                        
-        if mqtt_client:
-            mqtt_client.publish(MQTT_TOPIC, json.dumps(frame_ball_detections))                        
-        cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-
-        # Calculate framerate
-        t2 = cv2.getTickCount()
-        time1 = (t2-t1)/freq
-        frame_rate_calc= 1/time1
-
-        # Update the output frame
+        cv2.putText(frame, f'FPS: {fps:.2f}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        
         with lock:
             outputFrame = frame.copy()
-
-
+        logger.debug("Frame processed and outputFrame updated")
 
 def generate():
     global outputFrame, lock
@@ -373,26 +297,31 @@ def generate():
         with lock:
             if outputFrame is None:
                 continue
-            (flag,encodedImg) = cv2.imencode(".jpg",outputFrame)
+            (flag, encodedImage) = cv2.imencode(".jpg", outputFrame)
             if not flag:
                 continue
-            yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + 
+              bytearray(encodedImage) + b'\r\n')
+
 @app.route("/")
 def video_feed():
-    return Response(generate(),mimetype = "multipart/x-mixed-replace; boundary=frame")
+    return Response(generate(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
 
 if __name__ == '__main__':
-    # Start a thread that will perform object detection
     t = threading.Thread(target=detect_object)
     t.daemon = True
     t.start()
-
-    # Start the flask app
-    app.run(host="0.0.0.0", port=8000, debug=True,
-        threaded=True, use_reloader=False)
+    
+    print("Starting Flask server...")
+    print("To view the video feed, open a web browser and go to:")
+    print("http://localhost:8000")
+    
+    app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False)
 
 # Clean up
 cv2.destroyAllWindows()
 videostream.stop()
-mqtt_client.loop_stop()
-mqtt_client.disconnect()
+if mqtt_client:
+    mqtt_client.loop_stop()
+    mqtt_client.disconnect()

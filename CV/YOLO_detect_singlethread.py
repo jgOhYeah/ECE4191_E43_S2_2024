@@ -44,6 +44,8 @@ lock = threading.Lock()
 running = True  # Flag to control the threads
 detection_thread = None
 flask_thread = None
+cleanup_done = threading.Event()  # Add this line
+
 
 # MQTT setup
 mqtt_broker = "localhost"  # Replace with your MQTT broker IP or hostname

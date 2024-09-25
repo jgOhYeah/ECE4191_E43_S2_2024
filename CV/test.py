@@ -1,29 +1,21 @@
-import cv2
+from picamera2 import Picamera2
 import time
 
-def test_camera():
-    print("Attempting to access camera...")
-    cap = cv2.VideoCapture(0)
-    
-    if not cap.isOpened():
-        print("Failed to open camera")
-        return
+print("Initializing camera...")
+picam2 = Picamera2()
+picam2.configure(picam2.create_preview_configuration(
+    main={"size": (640, 480), "format": "RGB888"}))
+picam2.start()
+time.sleep(2)
 
-    print("Camera opened successfully")
-    
-    for i in range(10):  # Try to capture 10 frames
-        ret, frame = cap.read()
-        if ret:
-            print(f"Successfully captured frame {i+1}")
-            cv2.imshow('Frame', frame)
-            cv2.waitKey(1)
-        else:
-            print(f"Failed to capture frame {i+1}")
-        time.sleep(1)
-
-    cap.release()
-    cv2.destroyAllWindows()
-    print("Camera test complete")
-
-if __name__ == "__main__":
-    test_camera()
+try:
+    for i in range(100):  # Capture 100 frames
+        print(f"Capturing frame {i+1}...")
+        frame = picam2.capture_array()
+        print(f"Captured frame {i+1} of shape: {frame.shape}")
+        time.sleep(0.1)  # Slight delay between frames
+except Exception as e:
+    print(f"Error capturing frames: {e}")
+finally:
+    picam2.close()
+    print("Camera closed.")

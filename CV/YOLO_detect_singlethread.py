@@ -4,55 +4,23 @@ import cv2
 import numpy as np
 import sys
 import time
-import threading
 from flask import Flask, Response
-import paho.mqtt.client as mqtt
+# import paho.mqtt.client as mqtt  # Commented out since MQTT is not used now
 import json
 from scipy.optimize import curve_fit
 from collections import deque
-import subprocess
 import ncnn
 from picamera2 import Picamera2
-
+import atexit
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Global variables
-outputFrame = None
-lock = threading.Lock()
-
-
-
-class VideoStream:
-    def __init__(self, resolution=(640, 480), framerate=30):
-        self.picam2 = Picamera2()
-        # Configure the camera
-        self.picam2.configure(self.picam2.create_preview_configuration(
-            main={"size": resolution, "format": "RGB888"}))
-        self.picam2.start()
-        self.frame = None
-        self.stopped = False
-        self.framerate = framerate
-
-    def start(self):
-        threading.Thread(target=self.update, args=(), daemon=True).start()
-        return self
-
-    def update(self):
-        while not self.stopped:
-            # Capture frame-by-frame
-            self.frame = self.picam2.capture_array()
-            # Sleep to control frame rate
-            time.sleep(1 / self.framerate)
-
-    def read(self):
-        return self.frame
-
-    def stop(self):
-        self.stopped = True
-        self.picam2.close()
-
+model = None
+distance_estimator = None
+args = None
+picam2 = None
 
 class DistanceEstimator:
     # Distance estimation using a power law function
@@ -130,7 +98,6 @@ class YOLOv8_ncnn:
         mat_in.substract_mean_normalize(mean_vals, norm_vals)
 
         ex = self.net.create_extractor()
-        # ex.set_num_threads(self.net.opt.num_threads)
         ex.input("in0", mat_in)
         ret, mat_out = ex.extract("out0")
 
@@ -212,71 +179,34 @@ def draw_detections(frame, detections):
 
     return frame
 
-def detect_object():
-    global outputFrame, lock, videostream, distance_estimator, args, mqtt_client, MQTT_TOPIC
+@app.route('/')
+def video_feed():
+    # Capture image, process, and return as response
+    global model, distance_estimator, args, picam2
+    try:
+        # Capture image
+        frame = picam2.capture_array()
 
-    model = YOLOv8_ncnn(param_path=args.param_path,
-                        bin_path=args.bin_path,
-                        num_threads=args.num_threads,
-                        resize_mode=args.resize_mode,
-                        num_classes=args.num_classes)
-    videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
-    time.sleep(2)
-
-    frame_rate_calc = 1
-    freq = cv2.getTickFrequency()
-
-    while True:
-        #Starting timer for frame rate
-        t1 = cv2.getTickCount()
-        #Grabbing frame from video stream
-        frame1 = videostream.read()
-        if frame1 is None:
-            print("no frame recieved from video stream")
-            time.sleep(0.1)
-            continue
-
-        frame = frame1.copy()
-
-        # Run the model on the frame
-        try:
-            results = model.detect(frame)
-        except Exception as e:
-            print(f"Error during model detection: {e}")
-            continue        
-
+        # Run detection
+        results = model.detect(frame)
         detections = process_results(results, frame.shape[1], frame.shape[0])
         annotated_frame = draw_detections(frame, detections)
 
-        # Publishing detections via MQTT
-        mqtt_client.publish(MQTT_TOPIC, json.dumps(detections))
+        # Encode image to JPEG
+        ret, jpeg = cv2.imencode('.jpg', annotated_frame)
+        if not ret:
+            return "Failed to encode image", 500
 
-        # Calculating FPS
-        t2 = cv2.getTickCount()
-        time1 = (t2-t1)/freq
-        frame_rate_calc = 1 / time1 if time1 > 0 else 0
+        # Return image as response
+        return Response(jpeg.tobytes(), mimetype='image/jpeg')
+    except Exception as e:
+        return f"Error: {e}", 500
 
-        cv2.putText(annotated_frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),
-                    cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-
-        # Update the output frame
-        with lock:
-            outputFrame = annotated_frame.copy()
-
-def generate():
-    global outputFrame, lock
-    while True:
-        with lock:
-            if outputFrame is None:
-                continue
-            (flag,encodedImg) = cv2.imencode(".jpg",outputFrame)
-            if not flag:
-                continue
-            yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
-
-@app.route("/")
-def video_feed():
-    return Response(generate(),mimetype = "multipart/x-mixed-replace; boundary=frame")
+def cleanup():
+    global picam2
+    if picam2 is not None:
+        picam2.close()
+        print("Camera closed.")
 
 if __name__ == '__main__':
     # Parse command-line arguments
@@ -285,8 +215,7 @@ if __name__ == '__main__':
     parser.add_argument('--bin_path', type=str, default='best-opt.bin', help='Path to bin file')
     parser.add_argument('--confidence_threshold', type=float, default=0.5, help='Minimum confidence threshold for displaying detected objects')
     parser.add_argument('--resolution', help='Desired webcam resolution in WxH.', default='640x480')
-    parser.add_argument('--mqtt_broker', type=str, default='localhost', help='MQTT broker address')
-    parser.add_argument('--mqtt_port', type=int, default=1883, help='MQTT broker port')
+    # Removed MQTT-related arguments since MQTT is not used now
     parser.add_argument('--resize_mode', type=str, default='crop', choices=['crop', 'resize'], help='Image resize mode')
     parser.add_argument('--num_threads', type=int, default=2, help='Number of threads for model inference')
     parser.add_argument('--num_classes', type=int, default=2, help='Number of classes in the model')
@@ -296,35 +225,30 @@ if __name__ == '__main__':
     resW, resH = args.resolution.split('x')
     imW, imH = int(resW), int(resH)
 
-    # Initialize MQTT client
-    # mqtt_client = mqtt.Client()
-    # mqtt_client.connect(args.mqtt_broker, args.mqtt_port, 60)
-    # mqtt_client.loop_start()
-    # MQTT_TOPIC = "/vision/balls"
-
-    # # Initialize the model
-    # model = YOLOv8_ncnn(
-    #     param_path=args.param_path,
-    #     bin_path=args.bin_path,
-    #     num_threads=args.num_threads,
-    #     resize_mode=args.resize_mode,
-    #     num_classes=args.num_classes
-    # )
+    # Initialize the model
+    model = YOLOv8_ncnn(
+        param_path=args.param_path,
+        bin_path=args.bin_path,
+        num_threads=args.num_threads,
+        resize_mode=args.resize_mode,
+        num_classes=args.num_classes
+    )
 
     # Initialize distance estimator
     distance_estimator = DistanceEstimator()
 
-    # Start a thread that will perform object detection
-    # t = threading.Thread(target=detect_object)
-    # t.daemon = True
-    # t.start()
+    # Initialize the camera
+    picam2 = Picamera2()
+    picam2.configure(picam2.create_preview_configuration(
+        main={"size": (imW, imH), "format": "RGB888"}))
+    picam2.start()
+    time.sleep(0.1)  # Allow camera to warm up
 
-    # Start the flask app
-    # app.run(host="0.0.0.0", port=8000, debug=False,
-    #     threaded=True, use_reloader=False)
-    detect_object()
+    # Register cleanup function
+    atexit.register(cleanup)
+
+    # Start the Flask app in single-threaded mode
+    app.run(host="0.0.0.0", port=8000, debug=False, threaded=False)
+
     # Clean up
-    cv2.destroyAllWindows()
-    # videostream.stop()
-    # mqtt_client.loop_stop()
-    # mqtt_client.disconnect()
+    cleanup()

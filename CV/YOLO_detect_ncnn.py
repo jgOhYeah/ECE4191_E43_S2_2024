@@ -4,25 +4,19 @@ import cv2
 import numpy as np
 import sys
 import time
-import threading
 from flask import Flask, Response
 import paho.mqtt.client as mqtt
 import json
 from scipy.optimize import curve_fit
 from collections import deque
-import subprocess
 import ncnn
 from picamera2 import Picamera2
-
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Global variables
-outputFrame = None
-lock = threading.Lock()
-
-
+# outputFrame = None
 
 class VideoStream:
     def __init__(self, resolution=(640, 480), framerate=30):
@@ -31,28 +25,18 @@ class VideoStream:
         self.picam2.configure(self.picam2.create_preview_configuration(
             main={"size": resolution, "format": "RGB888"}))
         self.picam2.start()
+        time.sleep(2)
         self.frame = None
         self.stopped = False
         self.framerate = framerate
 
-    def start(self):
-        threading.Thread(target=self.update, args=(), daemon=True).start()
-        return self
-
-    def update(self):
-        while not self.stopped:
-            # Capture frame-by-frame
-            self.frame = self.picam2.capture_array()
-            # Sleep to control frame rate
-            time.sleep(1 / self.framerate)
-
     def read(self):
-        return self.frame
+        frame = self.picam2.capture_array()
+        return frame
 
     def stop(self):
         self.stopped = True
         self.picam2.close()
-
 
 class DistanceEstimator:
     # Distance estimation using a power law function
@@ -130,7 +114,6 @@ class YOLOv8_ncnn:
         mat_in.substract_mean_normalize(mean_vals, norm_vals)
 
         ex = self.net.create_extractor()
-        # ex.set_num_threads(self.net.opt.num_threads)
         ex.input("in0", mat_in)
         ret, mat_out = ex.extract("out0")
 
@@ -196,10 +179,10 @@ def process_results(results, img_width, img_height):
 
 def draw_detections(frame, detections):
     for detection in detections:
-        x1 = int((detection["xmin_norm"] + 1) * (frame.shape[1] -1 ) / 2)
-        x2 = int((detection["xmax_norm"] + 1) * (frame.shape[1] -1 ) / 2)
-        y1 = int((detection["ymin_norm"] + 1) * (frame.shape[0] -1 ) / 2)
-        y2 = int((detection["ymax_norm"] + 1) * (frame.shape[0] -1 ) / 2)
+        x1 = int((detection["xmin_norm"] + 1) * (frame.shape[1] - 1) / 2)
+        x2 = int((detection["xmax_norm"] + 1) * (frame.shape[1] - 1) / 2)
+        y1 = int((detection["ymin_norm"] + 1) * (frame.shape[0] - 1) / 2)
+        y2 = int((detection["ymax_norm"] + 1) * (frame.shape[0] - 1) / 2)
         label = f"{detection['class']}: {detection['confidence']:.2f}"
         cv2.rectangle(frame, (x1, y1), (x2, y2), (10, 255, 0), 2)
         cv2.putText(frame, label, (x1, y1 - 10),
@@ -212,78 +195,47 @@ def draw_detections(frame, detections):
 
     return frame
 
-def detect_object():
-    global outputFrame, lock, videostream, distance_estimator, args, mqtt_client, MQTT_TOPIC
-
-    model = YOLOv8_ncnn(param_path=args.param_path,
-                        bin_path=args.bin_path,
-                        num_threads=args.num_threads,
-                        resize_mode=args.resize_mode,
-                        num_classes=args.num_classes)
-    videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
-    time.sleep(2)
-
-    frame_rate_calc = 1
-    freq = cv2.getTickFrequency()
-
+def generate():
+    global model, videostream, args, mqtt_client, MQTT_TOPIC, distance_estimator
     while True:
-        #Starting timer for frame rate
-        t1 = cv2.getTickCount()
-        #Grabbing frame from video stream
-        frame1 = videostream.read()
-        if frame1 is None:
-            print("no frame recieved from video stream")
-            time.sleep(0.1)
+        frame = videostream.read()
+        if frame is None:
+            print("No frame received from video stream")
             continue
 
-        frame = frame1.copy()
-
-        # Run the model on the frame
         try:
             results = model.detect(frame)
         except Exception as e:
             print(f"Error during model detection: {e}")
-            continue        
+            continue
 
         detections = process_results(results, frame.shape[1], frame.shape[0])
+        print(f"Detections: {detections}")
         annotated_frame = draw_detections(frame, detections)
 
         # Publishing detections via MQTT
         mqtt_client.publish(MQTT_TOPIC, json.dumps(detections))
 
-        # Calculating FPS
-        t2 = cv2.getTickCount()
-        time1 = (t2-t1)/freq
-        frame_rate_calc = 1 / time1 if time1 > 0 else 0
+        # Encode frame as JPEG
+        (flag, encodedImage) = cv2.imencode(".jpg", annotated_frame)
+        if not flag:
+            print("Failed to encode image")
+            continue
 
-        cv2.putText(annotated_frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),
-                    cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-
-        # Update the output frame
-        with lock:
-            outputFrame = annotated_frame.copy()
-
-def generate():
-    global outputFrame, lock
-    while True:
-        with lock:
-            if outputFrame is None:
-                continue
-            (flag,encodedImg) = cv2.imencode(".jpg",outputFrame)
-            if not flag:
-                continue
-            yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
 
 @app.route("/")
 def video_feed():
-    return Response(generate(),mimetype = "multipart/x-mixed-replace; boundary=frame")
+    return Response(generate(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--param_path', type=str, default='best-opt.param', help='Path to param file')
     parser.add_argument('--bin_path', type=str, default='best-opt.bin', help='Path to bin file')
-    parser.add_argument('--confidence_threshold', type=float, default=0.5, help='Minimum confidence threshold for displaying detected objects')
+    parser.add_argument('--confidence_threshold', type=float, default=0.1, help='Minimum confidence threshold for displaying detected objects')
     parser.add_argument('--resolution', help='Desired webcam resolution in WxH.', default='640x480')
     parser.add_argument('--mqtt_broker', type=str, default='localhost', help='MQTT broker address')
     parser.add_argument('--mqtt_port', type=int, default=1883, help='MQTT broker port')
@@ -297,34 +249,31 @@ if __name__ == '__main__':
     imW, imH = int(resW), int(resH)
 
     # Initialize MQTT client
-    # mqtt_client = mqtt.Client()
-    # mqtt_client.connect(args.mqtt_broker, args.mqtt_port, 60)
-    # mqtt_client.loop_start()
-    # MQTT_TOPIC = "/vision/balls"
+    mqtt_client = mqtt.Client()
+    mqtt_client.connect(args.mqtt_broker, args.mqtt_port, 60)
+    mqtt_client.loop_start()
+    MQTT_TOPIC = "/vision/balls"
 
-    # # Initialize the model
-    # model = YOLOv8_ncnn(
-    #     param_path=args.param_path,
-    #     bin_path=args.bin_path,
-    #     num_threads=args.num_threads,
-    #     resize_mode=args.resize_mode,
-    #     num_classes=args.num_classes
-    # )
+    # Initialize the model
+    model = YOLOv8_ncnn(
+        param_path=args.param_path,
+        bin_path=args.bin_path,
+        num_threads=args.num_threads,
+        resize_mode=args.resize_mode,
+        num_classes=args.num_classes
+    )
 
     # Initialize distance estimator
     distance_estimator = DistanceEstimator()
 
-    # Start a thread that will perform object detection
-    # t = threading.Thread(target=detect_object)
-    # t.daemon = True
-    # t.start()
+    # Start the video stream
+    videostream = VideoStream(resolution=(imW, imH), framerate=30)
 
     # Start the flask app
-    # app.run(host="0.0.0.0", port=8000, debug=False,
-    #     threaded=True, use_reloader=False)
-    detect_object()
+    app.run(host="0.0.0.0", port=8000, debug=False,
+            threaded=False, use_reloader=False)
+
     # Clean up
-    cv2.destroyAllWindows()
-    # videostream.stop()
-    # mqtt_client.loop_stop()
-    # mqtt_client.disconnect()
+    videostream.stop()
+    mqtt_client.loop_stop()
+    mqtt_client.disconnect()

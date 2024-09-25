@@ -1,4 +1,4 @@
-#!/home/tennis/ECE4191_G43_S2_2024/CV/cv_311/bin/python3.11
+#!/home/tennis/ECE4191_G43_S2_2024/CV/cv_env/bin/python3.11
 # -*- coding: utf-8 -*-
 import re
 import sys

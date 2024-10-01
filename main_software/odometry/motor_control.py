@@ -19,12 +19,11 @@ import math
 
 from digitalfilter import LiveLFilter
 
+
 class PIController:
     """Class to implement a PI controller in real time."""
 
-    def __init__(
-        self, kp: float, ki: float, windup: float
-    ):
+    def __init__(self, kp: float, ki: float, windup: float):
         """Initialises the controller with a proportional and integral gain.
 
         Args:
@@ -66,7 +65,7 @@ class PIController:
         # Done
         return limited
 
-    def error(self, current:float, target:float) -> float:
+    def error(self, current: float, target: float) -> float:
         """Calculates the error.
 
         Args:
@@ -104,13 +103,19 @@ class PIController:
         self.min_output = min_output
         self.max_output = max_output
 
-    def set_target(self, target:float) -> None:
+    def set_target(self, target: float) -> None:
         """Sets the target.
 
         Args:
             target (float): The target.
         """
         self.target = target
+
+    def reset(self) -> None:
+        """Clears the history."""
+        self.integral = 0
+        self.last_windup = 0
+
 
 class PIControllerLogged(PIController):
     def __init__(
@@ -121,8 +126,7 @@ class PIControllerLogged(PIController):
         log_dir: str,
         log_file: str,
     ):
-        """Creates the PI controller and opens a file to log to.
-        """
+        """Creates the PI controller and opens a file to log to."""
         # Initialise as normal.
         super().__init__(kp, ki, windup)
 
@@ -133,27 +137,32 @@ class PIControllerLogged(PIController):
 
         # Create the log file.
         self.log_file = open(f"{log_dir}/{log_file}", "w", buffering=1)
-        self.log_file.write(f"Timestamp [s],Timestep [s],Limit Min,Limit Max,Target,Windup,Last Windup,Current,Output\n")
-    
+        self.log_file.write(
+            f"Timestamp [s],Timestep [s],Limit Min,Limit Max,Target,Windup,Last Windup,Current,Output\n"
+        )
+
     def update(self, current: float, timestep: float) -> float:
         output = super().update(current, timestep)
-        self.log_file.write(f"{time.time()},{timestep},{self.min_output},{self.max_output},{self.target},{self.windup_term},{self.last_windup},{current},{output}\n")
+        self.log_file.write(
+            f"{time.time()},{timestep},{self.min_output},{self.max_output},{self.target},{self.windup_term},{self.last_windup},{current},{output}\n"
+        )
         return output
 
     def close(self):
         self.log_file.close()
 
+
 class PIControllerAngle(PIControllerLogged):
-    """Limits the maximum angles in error calculations to +- pi
-    """
+    """Limits the maximum angles in error calculations to +- pi"""
 
     def error(self, current: float, target: float) -> float:
         error = current - target
-        error = error % (2*math.pi)
+        error = error % (2 * math.pi)
         if error > math.pi:
-            error -= 2*math.pi
-        
+            error -= 2 * math.pi
+
         return error
+
 
 class MotorControlMode(Enum):
     """Enumerator for whether the motor is trying to maintain speed or position."""
@@ -172,7 +181,7 @@ class MotorAccelerationController:
         encoder: RotaryEncoder,
         max_accel_on: float,
         max_accel_off: float,
-        filter: LiveLFilter
+        filter: LiveLFilter,
     ) -> None:
         """Initialised the controller.
 
@@ -252,7 +261,7 @@ class MotorAccelerationController:
         """
         # Calculate the acceleration and error.
         cur_acceleration = self._measure_acceleration(timestep, speed)
-        
+
         # Set PWM limits
         min_pwm, max_pwm = self.get_pwm_limits(speed)
         # min_pwm, max_pwm = -1, 1
@@ -315,7 +324,7 @@ class MotorSpeedController:
         self,
         controller: PIController,
         accel_control: MotorAccelerationController,
-        filter: LiveLFilter
+        filter: LiveLFilter,
     ):
         """Initialises the motor controller.
 
@@ -375,7 +384,9 @@ class MotorSpeedController:
             self.speed_control.set_limits(min_accel, max_accel)
 
             # Update the speed and acceleration controllers.
-            accel_request = self.speed_control.update(cur_speed, timestep)
+            accel_request = self.speed_control.update(
+                cur_speed, timestep
+            )  # BUG: Timestep is current timestep, not all time.
             self.accel_control.set_target_acceleration(accel_request)
         self.accel_control.update(timestep, cur_speed)
 
@@ -535,7 +546,10 @@ class MotorPositionController:
             bool: True if moved to new position and stopped, false otherwise.
         """
         self.pos_lock.acquire()
-        error = abs(self.speed_control.accel_control.encoder.steps - self.position_control.target)
+        error = abs(
+            self.speed_control.accel_control.encoder.steps
+            - self.position_control.target
+        )
         speed = self.speed_control.speed_control.target
         self.pos_lock.release()
         return error <= allowed_error and speed <= allowed_speed

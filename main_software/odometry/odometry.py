@@ -44,7 +44,8 @@ from motor_control import (
     MotorPositionController,
     PIController,
     PIControllerLogged,
-    PIControllerAngle
+    PIControllerAngle,
+    MotorControlMode,
 )
 from digitalfilter import create_filter
 from kalman import PositionAccumulator, PositionAccumulatorLogged
@@ -223,6 +224,173 @@ class Side:
         self.pos_control.update()
 
 
+class HeadingDistanceControl:
+    """Keeps the vehicle pointed in a particular direction and drives to a given distance."""
+
+    def __init__(self):
+        self.heading_control = PIControllerAngle(0.01, 0.001, 1, "position", "heading")
+        self.heading_control.set_limits(-0.2, 0.2)
+        self.distance_control = PIControllerLogged(0.01, 0.001, 1, "position", "speed")
+        self.distance_control.set_limits(-0.2, 0.2)
+        self.prev_time = time.time()
+
+    def set_speed(self, max_av: float, max_v: float) -> None:
+        """Sets the maximum angular and linear velocities."""
+        self.heading_control.set_limits(-max_av, max_av)
+        self.distance_control.set_limits(-max_v, max_v)
+
+    def set_target(self, heading: float, distance: float) -> None:
+        """Sets the target heading and distance.
+
+        Args:
+            heading (float): The heading to turn towards.
+            distance (float): The distance to go in that heading.
+        """
+        self.heading_control.set_target(heading)
+        self.distance_control.set_target(distance)
+
+    def update(
+        self, timestep: float, cur_heading: float, cur_distance: float
+    ) -> Tuple[float, float]:
+        """Recommends new angular and linear velocities to reach the required distance.
+
+        Args:
+            timestep (float): The timestep in seconds.
+            cur_heading (float): The current heading.
+            cur_distance (float): The current distance.
+
+        Returns:
+            Tuple[float, float]: New angular and linear velocities.
+        """
+        new_angular_velocity = self.heading_control.update(cur_heading, timestep)
+        new_linear_velocity = self.distance_control.update(cur_distance, timestep)
+        return new_angular_velocity, new_linear_velocity
+
+
+class PositionControl:
+    """Drives the robot to a particular location relative to the start."""
+
+    def __init__(self):
+        self.heading_distance = HeadingDistanceControl()
+        self.target = (0, 0)
+
+    def set_target(self, coords: Tuple[float, float]) -> None:
+        self.target = coords
+
+    def set_speed(self, max_av: float, max_v: float) -> None:
+        self.heading_distance.set_speed(max_av, max_v)
+
+    @classmethod
+    def polar_to_cartesian(heading: float, distance: float) -> Tuple[float, float]:
+        """Converts polar coordinates into cartesian representation.
+
+        Args:
+            heading (float): The heading in radians.
+            distance (float): The distance in m.
+
+        Returns:
+            Tuple[float, float]: X and Y coordinates in m.
+        """
+        x = distance * math.cos(heading)
+        y = distance * math.sin(heading)
+        return x, y
+
+    @classmethod
+    def cartesian_to_polar(x: float, y: float) -> Tuple[float, float]:
+        """Converts cartesian coordinates pack into polar representation.
+
+        Args:
+            x (float): The x position in m.
+            y (float): The y position in m.
+
+        Returns:
+            Tuple[float, float]: The heading in radians and the distance in m.
+        """
+        # Calculate the heading (working from -pi to pi currently).
+        # I know this can be simplified based on signs of each function, but I can't be bothered :).
+        small_angle = math.atan(abs(y / x))
+        angle = 0
+        if x >= 0 and y >= 0:
+            # Quadrant 1
+            angle = small_angle
+        elif x < 0 and y >= 0:
+            # Quadrant 2
+            angle = math.pi - small_angle
+        elif x < 0 and y < 0:
+            # Quadrant 3
+            angle = -math.pi + small_angle
+        elif x >= 0 and y < 0:
+            # Quadrant 4
+            angle = -small_angle
+
+        # Calculate the distance
+        distance = math.sqrt(x**2 + y**2)
+
+        return angle, distance
+
+    @classmethod
+    def calculate_target_move(
+        current: Tuple[float, float], target: Tuple[float, float]
+    ) -> Tuple[float, float]:
+        """Calculates a target heading and distance based off where we are now and where we want to go.
+
+        Args:
+            current (Tuple[float, float]): Current x and y coordinates.
+            target (Tuple[float, float]): Target x and y coordinates.
+
+        Returns:
+            Tuple[float, float]: The heading to aim for relative to the start position and how far to go.
+        """
+        x_change = target[0] - current[0]
+        y_change = target[1] - current[1]
+        target_heading, target_distance = PositionControl.cartesian_to_polar(
+            x_change, y_change
+        )
+        return target_heading, target_distance
+
+    def update(
+        self, timestep: float, cur_pos: Tuple[float, float], cur_heading: float
+    ) -> Tuple[float, float]:
+        """Runs the controller and predicts new velocities for each wheel.
+
+        Args:
+            timestep (float): The timestep from the last update.
+            cur_pos (Tuple[float, float]): The current position relative to the start.
+            cur_heading (float): The curren heading.
+
+        Returns:
+            Tuple[float, float]: The new angular and linear velocities.
+        """
+        # Calculate the target heading and distance from where we are to the target.
+        target_heading, target_distance = PositionControl.calculate_target_move(
+            cur_pos, self.target
+        )
+
+        # If we are facing the wrong direction, don't bother moving forwards until we are facing the correct way.
+        if (
+            abs(
+                self.heading_distance.heading_control.error(cur_heading, target_heading)
+            )
+            > math.pi / 4
+        ):
+            # Facing the wrong way, make linear velocity 0.
+            self.heading_distance.set_target(target_heading, target_distance)
+        else:
+            # Can move forward.
+            self.heading_distance.set_target(
+                target_heading, 0
+            )  # We wish to reach the spot. This could also be set to stop a little before it maybe?
+
+        # Calculate the required angular and linear velocities to reach the target.
+        av, lv = self.heading_distance.update(timestep, cur_heading, target_distance)
+        return av, lv
+
+    def reset(self) -> None:
+        """Resets all history."""
+        self.heading_distance.heading_control.reset()
+        self.heading_distance.distance_control.reset()
+
+
 class Vehicle:
     PUBLISH_INTERVAL = 8  # Only publish status updates every few iterations.
     UPDATE_DELAY = 0.02
@@ -237,6 +405,10 @@ class Vehicle:
         self.position = PositionAccumulatorLogged()
         self.angular_velocity, self.rotation_centre, self.linear_velocity = 0, 0, 0
         self.last_update = time.time()
+        self.control_mode = MotorControlMode.SPEED
+        self.position_controller = PositionControl()
+        self.last_position_update_time = time.time()
+        self.last_position_update_count = 5
 
         # Start the motor control threads.
         self.publish_count = Vehicle.PUBLISH_INTERVAL
@@ -275,7 +447,7 @@ class Vehicle:
             (left_speed + right_speed) / 2,
         )
 
-    def _calculate_speeds(
+    def _calculate_required_velocity(
         self, angular_velocity: float, speed: float
     ) -> Tuple[float, float]:
         """Calculates the left and right motor speeds required.
@@ -328,10 +500,6 @@ class Vehicle:
         timestep = timestamp - self.last_update
         self.last_update = timestamp
 
-        # Update the controllers.
-        self.left.update()
-        self.right.update()
-
         # Calculate the change in vehicle position.
         self.angular_velocity, self.rotation_centre, self.linear_velocity = (
             self._calculate_velocity(self.left.get_speed(), self.right.get_speed())
@@ -343,6 +511,23 @@ class Vehicle:
         self.position.add_current(
             self.angular_velocity, self.rotation_centre, self.linear_velocity
         )
+
+        # Update tbe heading and direction controllers as needed. Only do this every so often so that the other controllers have time to work.
+        self.last_position_update_count += 1
+        if (
+            self.control_mode == MotorControlMode.POSITION
+            and self.last_position_update_count > 5
+        ):
+            self.last_position_update_count = 0
+            pos_timestep = time.time() - self.last_position_update_time
+            recommended_av, recommended_v = self.position_controller.update(
+                pos_timestep, self.position.as_tuple(), self.position.heading
+            )
+            self._move_speed(recommended_av, recommended_v)
+
+        # Update the controllers.
+        self.left.update()
+        self.right.update()
 
         # Report the current position if needed
         self.publish_count += 1
@@ -368,61 +553,6 @@ class Vehicle:
         )
         status.publish()
 
-    def move_to_heading(
-        self, heading: float, distance: int, speed: float = 100
-    ):  # XXX: Replace
-        """Moves the platform to a specific relative heading and position.
-
-        Args:
-            heading (float): The new heading in radians, positive is clockwise when viewed from above.
-            distance (int): Distance to move in m.
-            speed (float, optional): The speed in steps / second.
-
-        Raises:
-            ValueError: If given an unreasonable distance to move.
-        """
-        # Check if the platform is still moving. Ignore if so. # TODO: Cope better in the long run.
-        if self.is_moving():
-            logging.warning(
-                "The platform is still moving from the last operation. Will ignore this command"
-            )
-            return
-
-        # Use PI control to determine PWM adjustments
-        # TODO
-        # heading_adjustment = self.heading_controller.update(delta_theta)
-
-        # Safety checks for steps (assuming maximum safe steps as max_safe_steps)
-
-        if abs(distance) > 100:
-            logging.error("Moving way too many revolutions.")
-            raise ValueError(
-                "move_to_heading: Requested steps exceed the maximum safe range."
-            )
-
-        # Record movement - needed if reversing back to origin
-        if heading != 0:
-            # Set heading
-            # self.record_movement(MovementType.TURN, heading)
-            self.status.moving = True
-            self.status.publish()
-            left, right = self._calculate_heading(heading)
-            self.left.drive_to_dist_relative(left, speed)
-            self.right.drive_to_dist_relative(right, speed)
-            self.wait_for_movement()
-
-        if distance != 0:
-            # Move forward by the given number of revolutions
-            # self.record_movement(MovementType.MOVE, distance)
-            self.status.moving = True
-            self.status.publish()
-            self.left.drive_to_dist_relative(distance, speed)
-            self.right.drive_to_dist_relative(distance, speed)
-            self.wait_for_movement()
-
-        self.status.moving = False
-        self.status.publish()
-
     def is_moving(self) -> bool:
         """Checks if the platform is moving.
 
@@ -437,219 +567,41 @@ class Vehicle:
             and abs(self.linear_velocity) < LINEAR_ERROR
         )
 
-    def wait_for_movement(self):
-        """Waits until the movement operation is complete."""
-        while self.is_moving():
-            time.sleep(0.1)
-        logging.debug(f"Vehicle movement finished")
+    def _move_speed(self, angular_velocity: float, linear_velocity: float) -> None:
+        """Commands the vehicle to move with a given speed.
 
-    def _calculate_heading(self, heading: float) -> Tuple[float, float]:  # XXX: Replace
-        """Calculates the linear distance to move each wheel to turn to a specific heading.
-
-        Currently turns from speed center of the axle.
-
-        Takes a heading and converts it to motor distances (left, right).
+        This is for internal use only. mqtt_move_speed correctly sets the
+        vehicle mode and disables position control if enabled.
         """
-        dist = heading / math.pi * WHEEL_BASE / 2
-        return dist, -dist
-
-    # def return_to_origin(self, speed:float=0.5):
-    #  """Uses odometry to return to the origin. - use for final """
-    #     global x, y, theta
-    #     distance_to_origin = math.sqrt(x**2 + y**2)
-    #     angle_to_origin = math.atan2(y, x) - theta
-
-    #     # Use PI control to correct heading and distance
-    #     self.heading_controller.update(angle_to_origin)
-    #     self.distance_controller.update(distance_to_origin / (2 * math.pi * wheel_radius))
-
-    #     self.move_to_heading(angle_to_origin, distance_to_origin / (2 * math.pi * wheel_radius), speed)
-    #     self.move_to_heading(-theta, 0, speed)  # Correct orientation
-
-    # this one returns to origin by reversing actions
-    def return_to_origin(self, speed: float = 1):  # XXX: Replace
-        raise NotImplementedError("Return to origin not implemented")
-        # return self.return_to_origin_simple(speed)
-        return self.return_to_origin_direct(speed)
-
-    def _calculate_origin_move(self, history) -> Tuple[float, float]:  # XXX: Replace
-        """Calculates the relative heading and distance to return to the origin."""
-
-        # State variables that acumulate movements
-        x_move = 0
-        y_move = 0
-        heading = math.pi  # Turn around as the first step.
-
-        # Process and sum movements
-        for i in range(len(history) - 1, -1, -1):
-            movement = history[i]
-            logging.debug(
-                f"{x_move=}, {y_move=}, {heading=}, About to reverse {i=} {movement}"
-            )
-            if movement.type == MovementType.MOVE:
-                # Move this distance in the current heading.
-                x_change, y_change = polar_to_cartesian(heading, movement.value)
-                x_move += x_change
-                y_move += y_change
-            elif movement.type == MovementType.TURN:
-                # Adjust the heading for the next movement.
-                heading -= movement.value  # Opposite angles.
-
-        # X and Y have the summed positions. Let's convert this back to polar and send it.
-        new_head, new_dist = cartesian_to_polar(x_move, y_move)
-        return new_head, new_dist
-
-    def return_to_origin_direct(self, speed: float = 1, max_dist=0.5):  # XXX: Replace
-        """Calculates the angle to face directly at the home position and drive directly to it.
-
-        Args:
-            speed (float, optional): The speed to drive at. Defaults to 0.5.
-            max_dist (float, optional) The maximum distance to drive at a time.
-        """
-        raise NotImplementedError("Return to origin not implemented")
-        logging.info("Returning directly to origin")
-        new_head, new_dist = self._calculate_origin_move(self.movement_history)
-
-        # Move back. Perform rotation and first leg of journey.
-        logging.debug(
-            f"Relative home position is {x=}, {y=} ({new_head=}, {new_dist=})"
+        left, right = self._calculate_required_velocity(
+            angular_velocity, linear_velocity
         )
-        if new_dist > max_dist:
-            # The distance is too big to cover in one go. One of the motors runs slower than the other, so the dodgy way to fix this is to use many short hops to allow the direction / encoders to be mostly corrected at the end of each hop.
-            logging.debug(f"Moving back in multiple steps")
-            self.move_to_heading(new_head, max_dist, speed)
-            new_dist -= max_dist
-            self.wait_for_movement()
+        self.left.set_speed(left)
+        self.right.set_speed(right)
 
-            # Move the rest of the way
-            while new_dist > 0:
-                self.move_to_heading(0, max_dist, speed)
-                new_dist -= max_dist
-                self.wait_for_movement()
-        else:
-            logging.debug(f"Moving back in one go")
-            self.move_to_heading(new_head, new_dist, speed)
-            self.wait_for_movement()
-
-        # Rotate back to the original orientation
-        logging.debug("Rotating to the original orientation")
-        # We are still going forwards when going back to origin, so steps in the motors are still incrementing. This means we can't use `self.right.drive_to_dist(0)``
-        self.move_to_heading(-new_head, 0)
-        self.wait_for_movement()
-
-        logging.debug(f"Done returning to home.")
-        self.update_odometry()
-
-    def move_speed(self, move_speed: MoveSpeed) -> None:
+    def mqtt_move_speed(self, move_speed: MoveSpeed) -> None:
         """Commands the vehicle to move with a given speed.
 
         Args:
             move_speed (MoveSpeed): The object containing the command
         """
         logging.debug(f"Got move command, {move_speed}")
-        left, right = self._calculate_speeds(
-            move_speed.angular_velocity, move_speed.speed
-        )
-        self.left.set_speed(left)
-        self.right.set_speed(right)
+        self.control_mode = MotorControlMode.SPEED
+        self._move_speed(move_speed.angular_velocity, move_speed.speed)
 
-    def move_position(self, move_position: MovePosition) -> None:
+    def mqtt_move_position(self, move_position: MovePosition) -> None:
         """Commands the vehicle to move to a specific position."""
         logging.debug(f"Got move to position command {move_position}")
+        if self.control_mode == MotorControlMode.SPEED:
+            # Changing from speed control to position control. Reset the history.
+            self.position_controller.reset()
+            self.control_mode = MotorControlMode.POSITION
 
-        def polar_to_cartesian(heading: float, distance: float) -> Tuple[float, float]:
-            """Converts polar coordinates into cartesian representation.
-
-            Args:
-                heading (float): The heading in radians.
-                distance (float): The distance in m.
-
-            Returns:
-                Tuple[float, float]: X and Y coordinates in m.
-            """
-            x = distance * math.cos(heading)
-            y = distance * math.sin(heading)
-            return x, y
-
-        def cartesian_to_polar(x: float, y: float) -> Tuple[float, float]:
-            """Converts cartesian coordinates pack into polar representation.
-
-            Args:
-                x (float): The x position in m.
-                y (float): The y position in m.
-
-            Returns:
-                Tuple[float, float]: The heading in radians and the distance in m.
-            """
-            # Calculate the heading (working from -pi to pi currently).
-            # I know this can be simplified based on signs of each function, but I can't be bothered :).
-            small_angle = math.atan(abs(y / x))
-            angle = 0
-            if x >= 0 and y >= 0:
-                # Quadrant 1
-                angle = small_angle
-            elif x < 0 and y >= 0:
-                # Quadrant 2
-                angle = math.pi - small_angle
-            elif x < 0 and y < 0:
-                # Quadrant 3
-                angle = -math.pi + small_angle
-            elif x >= 0 and y < 0:
-                # Quadrant 4
-                angle = -small_angle
-
-            # Calculate the distance
-            distance = math.sqrt(x**2 + y**2)
-
-            return angle, distance
-
-        def calculate_target_move(
-            current: Tuple[float, float], target: Tuple[float, float]
-        ) -> Tuple[float, float]:
-            """Calculates a target heading and distance based off where we are now and where we want to go.
-
-            Args:
-                current (Tuple[float, float]): Current x and y coordinates.
-                target (Tuple[float, float]): Target x and y coordinates.
-
-            Returns:
-                Tuple[float, float]: The heading to aim for relative to the start position and how far to go.
-            """
-            x_change = target[0] - current[0]
-            y_change = target[1] - current[1]
-            target_heading, target_distance = cartesian_to_polar(x_change, y_change)
-            return target_heading, target_distance
-
-        heading_control = PIControllerAngle(
-            0.01, 0.001, 1, "position", "heading"
+        self.position_controller.set_speed(
+            move_position.angular_velocity, move_position.speed
         )
-        heading_control.set_limits(-0.2, 0.2)
-        position_control = PIControllerLogged(
-            0.01, 0.001, 1, "position", "speed"
-        )
-        position_control.set_limits(-0.2, 0.2)
-        prev_time = time.time()
-
-        def update():
-            # Update the times.
-            cur_time = time.time()
-            timestep = cur_time - prev_time
-            prev_time = cur_time
-
-            # Calculate and set the desired heading and distance.
-            target_heading, target_distance = calculate_target_move(
-                (self.position.x, self.position.y), move_position.position
-            )
-            heading_control.set_target(target_heading)
-            position_control.set_target(target_distance)
-
-            # Get the outputs.
-            new_angular_v = heading_control.update(self.position.heading, timestep)
-
-        while True:
-            time.sleep(0.1)
-
-        raise NotImplementedError("Moving to a fixed position is not implemented yet.")
+        self.position_controller.set_target(move_position.position)
+        self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
 
 # Function to encapsulate the MQTT setup
@@ -658,8 +610,8 @@ def initialize_mqtt(vehicle: Vehicle):
 
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
-        MoveSpeed(callback=vehicle.move_speed).topic_method_pair(),
-        MovePosition(callback=vehicle.move_position).topic_method_pair(),
+        MoveSpeed(callback=vehicle.mqtt_move_speed).topic_method_pair(),
+        MovePosition(callback=vehicle.mqtt_move_position).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs

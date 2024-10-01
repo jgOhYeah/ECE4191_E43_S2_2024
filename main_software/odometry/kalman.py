@@ -3,6 +3,7 @@ Classes and functions for implementing a Kalman filter to work out where this is
 # import numpy as np
 import math
 import time
+from typing import Tuple
 
 class PositionAccumulator:
     """Class that accumulates position and heading. This isn't a full Kalman filter, but should be ok for short durations.
@@ -37,6 +38,9 @@ class PositionAccumulator:
         self.heading += heading_change
         # TODO: Limit windup.
     
+    def as_tuple(self) -> Tuple[float, float]:
+        return self.x, self.y
+
     def __repr__(self) -> str:
         """Generates a string representation.
         """

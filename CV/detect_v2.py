@@ -12,6 +12,7 @@ import json
 from scipy.optimize import curve_fit 
 from collections import deque  
 
+
 ## Acknowledgements
 ## This code is based on the following repos:
 ## https://github.com/EdjeElectronics/TensorFlow-Lite-Object-Detection-on-Android-and-Raspberry-Pi
@@ -44,8 +45,7 @@ mqtt_client.loop_start()
 # Global variables
 outputFrame = None
 lock = threading.Lock()
-ball_detections = []
-last_publish_time = time.time()
+
 
 
 class VideoStream:
@@ -57,9 +57,6 @@ class VideoStream:
         self.stream.set(3, resolution[0])
         self.stream.set(4, resolution[1])
         self.stopped = False
-
-        #calculating fps 
-        set
     
     def start(self):
         threading.Thread(target=self.update, args=()).start()
@@ -232,12 +229,16 @@ def NMS(boxes,scores,threshold):
         order = order[inds + 1]
     return keep
 
+def normalize_coordinates(x, y, image_width, image_height):
+    x_normalized = 2 * x / (image_width -1) - 1
+    y_normalized = 2 * y / (image_height - 1) -1 
+    return x_normalized, y_normalized
 
 
 
 def detect_object():
     # Function to detect the object in the video stream
-    global outputFrame,lock, videostream, ball_detections, last_publish_time
+    global outputFrame,lock, videostream
     videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
     time.sleep(1)
 
@@ -274,7 +275,7 @@ def detect_object():
         scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
         keep = NMS(boxes,scores,0.9)
     #   for i in range(len(scores)):
-
+        frame_ball_detections = []
         for i in keep:
             #if ((scores[i] > min_conf_threshold) and (scores[i] <=1.0)):
             if scores[i] > min_conf_threshold:
@@ -301,7 +302,7 @@ def detect_object():
                         # print(f"Calculated box: xmin={xmin}, ymin={ymin}, xmax={xmax}, ymax={ymax}")
                         estimated_distance = distance_estimator.estimate_distance(modified_area)
 
-
+                        
 
                         cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
                         # Draw label
@@ -312,29 +313,27 @@ def detect_object():
                         cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
                         cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
 
+                        
+                        xmin_norm, ymin_norm = normalize_coordinates(xmin,ymin,frame.shape[1],frame.shape[0])
+                        xmax_norm, ymax_norm = normalize_coordinates(xmax,ymax,frame.shape[1],frame.shape[0])
+                        xcenter_norm, ycenter_norm = normalize_coordinates(center_x, center_y, frame.shape[1],frame.shape[0])
                         # sending the info through MQTT
-                        ball_detections.append({
-                            "xmin,xmax": [xmin,xmax],
-                            "ymin,ymax": [ymin,ymax],
-                            "center point": [center_x,center_y],
+                        frame_ball_detections.append({
+                            "xmin,xmax norm": [xmin_norm,xmax_norm],
+                            "ymin,ymax": [ymin_norm,ymax_norm],
+                            "center point": [xcenter_norm, ycenter_norm],
                             "confidence": confidence,
                             "area": modified_area,
                             "distance": estimated_distance
                         })
 
 
+                        print(f"Boundary Box at: x: [{xmin_norm},{xmax_norm}], y: [{ymin_norm},{ymax_norm}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
 
-                        current_time = time.time()
-                        #if current_time - last_publish_time > 1:
-                        if ball_detections:
-                            mqtt_client.publish(MQTT_TOPIC, json.dumps(ball_detections))
-                            ball_detections = []
-                        last_publish_time = current_time
-
-
-
-                        print(f"Boundary Box at: x: [{xmin},{xmax}], y: [{ymin},{ymax}], area: {box_area}, conf.: {int(scores[i]*100)}%, aspect_ratio: {aspect_ratio}, mod. area: {modified_area}, est. dist.: {estimated_distance}")
-
+                        
+                        
+        mqtt_client.publish(MQTT_TOPIC, json.dumps(frame_ball_detections))
+                        
         cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
 
         # Calculate framerate

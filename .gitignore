@@ -3,6 +3,9 @@ log_control.txt
 log_vision.txt
 log_odometry.txt
 
+# FreeCAD backups
+*.FCBak
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

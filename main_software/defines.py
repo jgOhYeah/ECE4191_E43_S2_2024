@@ -24,6 +24,7 @@ class MQTTTopics:
     ODOMETRY_GO_HOME = "/odometry/go-home"
     ODOMETRY_CURRENT = "/odometry/current"
     ODOMETRY_STATUS = "/odometry/status"
+    ODOMETRY_SENSORS = "/odometry/sensors"
 
     # Stuff to do with the vision system.
     VISION_CONTACT = "/vision/contact"
@@ -311,3 +312,58 @@ class MovePosition(MQTTTopicImplementation):
         self.speed = args["speed"]
         self.position = args["position"]
         return super().receive(args)
+
+
+class OdometrySensors(MQTTTopicImplementation):
+    """Class for storing, transmitting, and receiving odometry sensor readings."""
+
+    def __init__(
+        self,
+        latest_time_left: str = "Unknown time",
+        latest_time_right: str = "Unknown time",
+        callback: Callable[[MQTTTopicImplementation], None] = None,
+    ):
+        """Creates the odometry sensors object.
+
+        Args:
+            latest_time_left (str, optional): Latest time a white line was detected on the left sensor. Defaults to "Unknown time".
+            latest_time_right (str, optional): Latest time a white line was detected on the right sensor. Defaults to "Unknown time".
+            callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+        """
+        super().__init__(MQTTTopics.ODOMETRY_SENSORS, callback)
+        self.latest_time_left = latest_time_left
+        self.latest_time_right = latest_time_right
+
+    def to_dict(self) -> dict:
+        """Represents the sensor data as a dictionary.
+
+        Returns:
+            dict: The dictionary representation of the sensor data.
+        """
+        return {
+            "latest_time_left": self.latest_time_left,
+            "latest_time_right": self.latest_time_right,
+        }
+
+    def receive(self, args: dict) -> None:
+        """Processes incoming sensor data.
+
+        Args:
+            args (dict): The incoming message payload.
+        """
+        sensor_time = args.get("time", "Unknown time")
+        sensor_id = args.get("sensor", "unknown")
+
+        logging.info(f"Sensor Event: line detected on {sensor_id} at {sensor_time}")
+
+        # Update latest detection times based on which sensor is reporting
+        if sensor_id == "left":
+            self.latest_time_left = sensor_time
+        elif sensor_id == "right":
+            self.latest_time_right = sensor_time
+
+        # Log the updated state
+        logging.debug(f"Updated Times - Left: {self.latest_time_left}, Right: {self.latest_time_right}")
+
+        # Call the callback if needed.
+        super().receive(args)

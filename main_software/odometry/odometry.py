@@ -18,6 +18,7 @@ from defines import (
     OdometryCurrent,
     MoveSpeed,
     MovePosition,
+    OdometrySensors  
 )
 
 # Logging
@@ -37,6 +38,9 @@ import threading
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+import threading
+from sensors import main as sensors_main
+from datetime import datetime
 
 from motor_control import (
     MotorAccelerationController,
@@ -578,6 +582,9 @@ class Vehicle:
         )
         self.left.set_speed(left)
         self.right.set_speed(right)
+    
+    def mqtt_handle_sensors(self, sensor_data: OdometrySensors):
+        handle_line_detection(sensor_data.sensor, sensor_data.to_dict())
 
     def mqtt_move_speed(self, move_speed: MoveSpeed) -> None:
         """Commands the vehicle to move with a given speed.
@@ -604,6 +611,99 @@ class Vehicle:
         self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
 
+# Variables to store the line detection times
+left_sensor_time = None
+right_sensor_time = None
+
+def handle_line_detection(sensor: str, message: dict):
+    """Handles line detection from the left or right sensor.
+
+    Args:
+        sensor (str): 'left' or 'right' to indicate which sensor sent the message.
+        message (dict): The MQTT message containing the detection info.
+    """
+    global left_sensor_time, right_sensor_time
+
+    # Record the time of detection
+    detection_time = datetime.now()
+    
+    if sensor == 'left':
+        left_sensor_time = detection_time
+        logging.info(f"Left sensor detected line at {left_sensor_time}")
+    elif sensor == 'right':
+        right_sensor_time = detection_time
+        logging.info(f"Right sensor detected line at {right_sensor_time}")
+
+    # If both sensors have detected the line, calculate the angle and send the movement command
+    if left_sensor_time and right_sensor_time:
+        calculate_and_move_based_on_angle()
+
+def calculate_and_move_based_on_angle():
+    """Calculates the angle of the line and sends a movement command."""
+    global left_sensor_time, right_sensor_time
+
+    # Time difference in seconds
+    time_diff = (right_sensor_time - left_sensor_time).total_seconds()
+
+    # Calculate angle based on time difference and known sensor distance
+    angle = calculate_angle_from_time_difference(time_diff, sensor_distance=10, speed=100)  # Customize sensor_distance and speed
+
+    if time_diff > 0:
+        logging.info(f"Line is angled to the right by {angle} degrees")
+    else:
+        logging.info(f"Line is angled to the left by {-angle} degrees")
+
+    # Calculate the opposite angle to the line
+    opposite_angle = calculate_opposite_angle(angle)
+    logging.info(f"Turning to face inward opposite to the line: {opposite_angle} degrees")
+
+    # Send a move command to turn perpendicular to the line
+    send_move_command(distance=0, heading=opposite_angle) ####PLACEHOLDER
+    # Move forward 10 cm (0.1 meters)
+    logging.info("Moving forward 10 cm.")
+    send_move_command(distance=0.1, heading=opposite_angle)  # Move forward in the same direction ####PLACEHOLDER
+
+    # Reset the sensor times to avoid miscalculating from the wrong position
+    reset_detection_times()
+
+def reset_detection_times():
+    """Resets the line detection times."""
+    global left_sensor_time, right_sensor_time
+    left_sensor_time = None
+    right_sensor_time = None
+    logging.info("Resetting detection times.")
+
+def calculate_angle_from_time_difference(time_diff, sensor_distance, speed):
+    """Calculates the angle from time difference, sensor distance, and robot speed."""
+    import math
+    return math.degrees(math.atan((time_diff * speed) / sensor_distance))
+
+def calculate_opposite_angle(line_angle: float) -> float:
+    """Calculates the opposite angle of the line.
+
+    Args:
+        line_angle (float): The angle of the line in degrees.
+
+    Returns:
+        float: The opposite angle in degrees.
+    """
+    # Normalize angle to be within 0-360 degrees
+    opposite_angle = (line_angle + 180) % 360
+    return opposite_angle
+
+# New function to handle incoming sensor data
+def mqtt_handle_sensors(sensor_data: OdometrySensors):
+    """Handles incoming sensor data from the OdometrySensors class."""
+    global left_sensor_time, right_sensor_time
+
+    # Retrieve the latest detection times from the sensor data
+    left_sensor_time = sensor_data.latest_time_left
+    right_sensor_time = sensor_data.latest_time_right
+
+    # Check if both sensors have recorded detection times
+    if left_sensor_time and right_sensor_time:
+        calculate_and_move_based_on_angle()
+
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
     """Initializes MQTT and sets up the topic subscriptions and callbacks."""
@@ -612,6 +712,7 @@ def initialize_mqtt(vehicle: Vehicle):
     method_pairs = [
         MoveSpeed(callback=vehicle.mqtt_move_speed).topic_method_pair(),
         MovePosition(callback=vehicle.mqtt_move_position).topic_method_pair(),
+        OdometrySensors(callback=vehicle.mqtt_handle_sensors).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs
@@ -627,5 +728,11 @@ if __name__ == "__main__":
 
     # Create the vehicle instance
     vehicle = Vehicle()
+
+    #new thread for sensors
+    t = threading.Thread(target = sensors_main)
+    t.start
     # Initialize MQTT with the vehicle instance
     initialize_mqtt(vehicle)
+
+

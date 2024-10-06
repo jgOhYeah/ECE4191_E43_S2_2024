@@ -5,6 +5,8 @@ from typing import List
 
 # Import the helper functions in defines.py
 import sys
+from datetime import datetime
+import time
 
 sys.path.insert(1, sys.path[0] + "/../")
 from defines import (
@@ -14,7 +16,8 @@ from defines import (
     TopicMethodPair,
     mqtt_client,
     publish_mqtt,
-    OdometryCurrent
+    OdometryCurrent,
+    OdometrySensors
 )
 
 # Logging
@@ -37,6 +40,7 @@ state = State.FOLLOWING_BALL
 import math
 
 odometry_current = OdometryCurrent()
+odometry_sensors = OdometrySensors()
 
 class ContactChecker:
     """Class for detecting if a contact has occurred based on distance."""
@@ -199,6 +203,82 @@ def handle_balls(args: List):
     else:
         logging.debug("Going home, don't need to handle balls.")
 
+# Function to handle the line detection based on the latest sensor times
+def handle_line_detection(sensor_data: OdometrySensors):
+    """Handles line detection based on the latest sensor detection times.
+    
+    Args:
+        sensor_data (OdometrySensors): The data containing latest detection times for both sensors.
+    """
+    latest_time_left = sensor_data.latest_time_left
+    latest_time_right = sensor_data.latest_time_right
+
+    # Check if both sensors have detected the line
+    if latest_time_left != "Unknown time" and latest_time_right != "Unknown time":
+        # Convert strings to datetime objects
+        left_sensor_time = datetime.strptime(latest_time_left, '%Y-%m-%d %H:%M:%S')
+        right_sensor_time = datetime.strptime(latest_time_right, '%Y-%m-%d %H:%M:%S')
+
+        # Calculate the time difference and angle
+        calculate_and_move_based_on_angle(left_sensor_time, right_sensor_time)
+    else:
+        logging.info("Waiting for both sensors to detect the line.")
+
+def calculate_and_move_based_on_angle(left_sensor_time, right_sensor_time):
+    """Calculates the angle of the line and sends a movement command based on detection times."""
+    # Time difference in seconds
+    time_diff = (right_sensor_time - left_sensor_time).total_seconds()
+
+    # Calculate the angle based on time difference and known sensor distance
+    angle = calculate_angle_from_time_difference(time_diff, sensor_distance=10, speed=odometry_current.speed)
+
+    # Determine whether to adjust for a left or right turn
+    if time_diff > 0:
+        logging.info(f"Line is angled to the right by {angle} degrees")
+    else:
+        logging.info(f"Line is angled to the left by {-angle} degrees")
+
+    # Calculate the opposite angle to turn the robot inwards
+    opposite_angle = calculate_opposite_angle(angle)
+    logging.info(f"Turning to face inward opposite to the line: {opposite_angle} degrees")
+
+    # Send a movement command to turn to the opposite angle
+    send_move_command(distance=0, heading=opposite_angle)
+
+    # After turning, move forward 10 cm to clear the line
+    send_move_command(distance=0.1, heading=opposite_angle)
+    time.sleep(5) ## this is to make sure it doesnt detect the line while it is returning inside the box - hopefully?
+
+    # Reset detection times to avoid recalculating based on old data
+    reset_detection_times()
+
+def reset_detection_times():
+    """Resets the latest detection times for both sensors."""
+    logging.info("Resetting detection times.")
+    # This function resets the detection times in the sensor system (if needed)
+    # Depending on how you track these in the `OdometrySensors` class, you could reset here or handle this separately.
+
+def calculate_angle_from_time_difference(time_diff, sensor_distance, speed):
+    """Calculates the angle from time difference, sensor distance, and robot speed."""
+    import math
+    return math.degrees(math.atan((time_diff * speed) / sensor_distance))
+
+def calculate_opposite_angle(line_angle: float) -> float:
+    """Calculates the opposite angle of the line.
+    
+    Args:
+        line_angle (float): The angle of the line in degrees.
+
+    Returns:
+        float: The opposite angle in degrees.
+    """
+    # Normalize the angle to be within 0-360 degrees
+    opposite_angle = (line_angle + 180) % 360
+    return opposite_angle
+
+def mqtt_handle_sensors(sensor_data: OdometrySensors):
+    """Handles incoming sensor data from the OdometrySensors class."""
+    handle_line_detection(sensor_data)
 
 if __name__ == "__main__":
     # Main code to run.
@@ -206,7 +286,8 @@ if __name__ == "__main__":
     method_pairs = [
         TopicMethodPair(MQTTTopics.VISION_BALLS, handle_balls),
         # TopicMethodPair(MQTTTopics.VISION_CONTACT, handle_contact), # NOTE: Just doing contact in this control script for now.
-        TopicMethodPair(MQTTTopics.ODOMETRY_CURRENT, odometry_current.receive)
+        TopicMethodPair(MQTTTopics.ODOMETRY_CURRENT, odometry_current.receive),
+        TopicMethodPair(MQTTTopics.ODOMETRY_SENSORS, odometry_sensors.receive)
     ]
     setup_mqtt(method_pairs)
     publish_mqtt(MQTTTopics.STATUS, {"state": "control running"})

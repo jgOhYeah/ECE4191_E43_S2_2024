@@ -108,20 +108,20 @@ def detect_objects():
     global output_frame, lock, running
     try:
         while running:
-            # Capture frame-by-frame
+            # Capture frame-by-frame (frame is in RGB format)
             frame = picam2.capture_array()
 
             if frame is None:
                 print("Error: Failed to capture image")
                 break
 
-            # Convert image from RGB to BGR (for OpenCV)
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-            # Perform object detection
+            # Perform object detection (model expects RGB format)
             results = model(frame)
 
             detections = []  # List to hold all detections in the frame
+
+            # Convert frame to BGR for OpenCV drawing
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
             # Draw bounding boxes on the frame and collect detections
             for result in results:
@@ -145,8 +145,8 @@ def detect_objects():
 
                         label = f"{category}, Conf: {conf:.2f}"
                         
-                        # Draw the bounding box
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        # Draw the bounding box on the BGR image
+                        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
                         
                         # Improved text rendering
                         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -161,18 +161,18 @@ def detect_objects():
                         rect_y2 = y1
                         
                         # Draw background rectangle
-                        cv2.rectangle(frame, (rect_x1, rect_y1), (rect_x2, rect_y2), (0, 0, 0), -1)
+                        cv2.rectangle(frame_bgr, (rect_x1, rect_y1), (rect_x2, rect_y2), (0, 0, 0), -1)
                         
                         # Draw text
-                        cv2.putText(frame, label, (x1 + 5, y1 - 5), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+                        cv2.putText(frame_bgr, label, (x1 + 5, y1 - 5), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
 
             # Publish detections via MQTT
             if running:
                 client.publish(mqtt_topic, json.dumps(detections))
 
-            # Acquire lock to set the global output frame
+            # Acquire lock to set the global output frame (still in BGR format)
             with lock:
-                output_frame = frame.copy()
+                output_frame = frame_bgr.copy()
 
             # Add a small sleep to prevent high CPU usage
             time.sleep(0.1)
@@ -181,6 +181,8 @@ def detect_objects():
         print(f"Error in detect_objects: {e}")
     finally:
         print("Exiting detect_objects thread")
+
+    
 
 def flask_run():
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
@@ -191,11 +193,12 @@ def generate_frames():
         with lock:
             if output_frame is None:
                 continue
+            # Convert BGR back to RGB before encoding
+            frame_rgb = cv2.cvtColor(output_frame, cv2.COLOR_BGR2RGB)
             # Encode the frame in JPEG format
-            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+            (flag, encodedImage) = cv2.imencode(".jpg", frame_rgb)
             if not flag:
                 continue
-
         # Yield the output frame in byte format
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + encodedImage.tobytes() + b'\r\n')

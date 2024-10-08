@@ -69,6 +69,9 @@ client.connect(mqtt_broker, mqtt_port, 60)
 client.subscribe(command_topic)     #subscribe to command topic)
 client.loop_start()
 
+def publish_status(status_dict):
+    client.publish(status_topic, json.dumps(status_dict))
+
 def cleanup():
     global running, detection_thread, flask_thread, picam2, client, app, take_photo_event
 
@@ -125,16 +128,21 @@ def detect_objects():
 
             # publishing "taking photo"
             client.publish(status_topic,"Taking photo")
+            publish_status({"taking_photo": True, "photo_taken": False, "processing": False})
 
             # Capture frame-by-frame (frame is in RGB format)
             frame = picam2.capture_array()
 
             if frame is None:
                 print("Error: Failed to capture image")
+                #resetting the flags
+                publish_status({"taking_photo": False, "photo_taken": False, "processing": False})
+
                 break
 
             #publish photo taken, publishing
             client.publish(status_topic,"Photo taken, processing")
+            publish_status({"taking_photo": False, "photo_taken": True, "processing": True})
 
 
             # Perform object detection (model expects RGB format)
@@ -191,6 +199,8 @@ def detect_objects():
             # Publish detections via MQTT
             if running:
                 client.publish(mqtt_topic, json.dumps(detections))
+            
+            publish_status({"taking_photo": False, "photo_taken": False, "processing": False})
 
             # Acquire lock to set the global output frame (still in BGR format)
             with lock:
@@ -201,6 +211,7 @@ def detect_objects():
 
     except Exception as e:
         print(f"Error in detect_objects: {e}")
+        publish_status({"taking_photo": False, "photo_taken": False, "processing": False})
     finally:
         print("Exiting detect_objects thread")
 

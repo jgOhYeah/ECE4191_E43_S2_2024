@@ -17,7 +17,7 @@ from defines import (
     publish_mqtt,
     OdometryCurrent,
     MoveSpeed,
-    MovePosition,
+    MovePosition  
 )
 
 # Logging
@@ -37,6 +37,8 @@ import threading
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+import threading
+from sensors import main as sensors_main
 
 from motor_control import (
     MotorAccelerationController,
@@ -273,9 +275,24 @@ class PositionControl:
     def __init__(self):
         self.heading_distance = HeadingDistanceControl()
         self.target = (0, 0)
+        self.is_relative = False  # Flag to indicate if the target is relative or global
 
-    def set_target(self, coords: Tuple[float, float]) -> None:
+    def set_target(self, coords: Tuple[float, float], cur_pos: Tuple[float, float], cur_heading: float, is_relative: bool = False) -> None:
+        """
+        Sets the target position.
+        
+        Args:
+            coords (Tuple[float, float]): Target position (x, y).
+            is_relative (bool): Whether the target is relative to the current position or global.
+        """
         self.target = coords
+        self.is_relative = is_relative
+        if self.is_relative:
+            # Convert relative target to global target based on current position and heading
+            self.target = self.calculate_relative_target(cur_pos, cur_heading)
+        else:
+            # Use the target as a global position
+            self.target = self.target
 
     def set_speed(self, max_av: float, max_v: float) -> None:
         self.heading_distance.set_speed(max_av, max_v)
@@ -348,6 +365,30 @@ class PositionControl:
         )
         return target_heading, target_distance
 
+    def calculate_relative_target(
+        self, current_pos: Tuple[float, float], cur_heading: float
+    ) -> Tuple[float, float]:
+        """
+        Converts a relative target (with respect to current position and heading) to a global target.
+
+        Args:
+            current_pos (Tuple[float, float]): The current global (x, y) position.
+            cur_heading (float): The current heading in radians.
+
+        Returns:
+            Tuple[float, float]: The global target position.
+        """
+        # Convert relative target into global coordinates by adjusting for current heading
+        relative_x, relative_y = self.target
+        delta_x = relative_x * math.cos(cur_heading) - relative_y * math.sin(cur_heading)
+        delta_y = relative_x * math.sin(cur_heading) + relative_y * math.cos(cur_heading)
+
+        # Add the relative target to the current position
+        global_x = current_pos[0] + delta_x
+        global_y = current_pos[1] + delta_y
+
+        return global_x, global_y
+    
     def update(
         self, timestep: float, cur_pos: Tuple[float, float], cur_heading: float
     ) -> Tuple[float, float]:
@@ -356,11 +397,12 @@ class PositionControl:
         Args:
             timestep (float): The timestep from the last update.
             cur_pos (Tuple[float, float]): The current position relative to the start.
-            cur_heading (float): The curren heading.
+            cur_heading (float): The current heading.
 
         Returns:
             Tuple[float, float]: The new angular and linear velocities.
         """
+
         # Calculate the target heading and distance from where we are to the target.
         target_heading, target_distance = PositionControl.calculate_target_move(
             cur_pos, self.target
@@ -589,7 +631,7 @@ class Vehicle:
         self.control_mode = MotorControlMode.SPEED
         self._move_speed(move_speed.angular_velocity, move_speed.speed)
 
-    def mqtt_move_position(self, move_position: MovePosition) -> None:
+    def mqtt_move_position(self, move_position: MovePosition, is_relative: bool = True) -> None:
         """Commands the vehicle to move to a specific position."""
         logging.debug(f"Got move to position command {move_position}")
         if self.control_mode == MotorControlMode.SPEED:
@@ -600,9 +642,12 @@ class Vehicle:
         self.position_controller.set_speed(
             move_position.angular_velocity, move_position.speed
         )
-        self.position_controller.set_target(move_position.position)
-        self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
+        current_position = self.position.as_tuple() 
+        current_heading = self.position.heading 
+
+        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=is_relative)
+        self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
@@ -620,12 +665,18 @@ def initialize_mqtt(vehicle: Vehicle):
     # Start the MQTT client loop (use loop_start() if you want non-blocking behavior)
     mqtt_client.loop_forever()  # Use mqtt_client.loop_start() to not block.
 
-
 if __name__ == "__main__":
     # Main code to run.
     setup_logging("log_odometry.txt", logging.DEBUG)
 
     # Create the vehicle instance
     vehicle = Vehicle()
+
+    #new thread for sensors
+    t = threading.Thread(target = sensors_main) ########
+    t.start
+
     # Initialize MQTT with the vehicle instance
     initialize_mqtt(vehicle)
+
+

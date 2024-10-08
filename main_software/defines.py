@@ -1,12 +1,14 @@
 """defines.py
 This file should be included by all sections. It contains MQTT login detauls and topics."""
 
-from typing import Callable, List
+from __future__ import annotations
+from typing import Callable, List, Tuple
 import paho.mqtt.client as mqtt
 from dataclasses import dataclass
 import logging
 import sys
 import json
+from abc import ABC, abstractmethod
 
 MQTT_HOST = "localhost"
 
@@ -17,7 +19,8 @@ class MQTTTopics:
     """
 
     # Stuff to do with the odometry system.
-    ODOMETRY_MOVE = "/odometry/move"
+    ODOMETRY_MOVE_SPEED = "/odometry/move-speed"
+    ODOMETRY_MOVE_POSITION = "/odometry/move-position"
     ODOMETRY_GO_HOME = "/odometry/go-home"
     ODOMETRY_CURRENT = "/odometry/current"
     ODOMETRY_STATUS = "/odometry/status"
@@ -107,7 +110,7 @@ def publish_mqtt(topic: str, message: dict):
         message (dict): The message payload.
     """
     payload = json.dumps(message)
-    logging.debug(f"Publishing on topic '{topic}'. Payload '{payload}'")
+    # logging.debug(f"Publishing on topic '{topic}'. Payload '{payload}'")
     mqtt_client.publish(topic, payload)
 
 
@@ -125,30 +128,105 @@ def setup_logging(filename: str = "log.txt", log_level: int = logging.DEBUG):
     )
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-class OdometryCurrent:
-    """Class for storing, transmitting and receiving the current odometry readings."""
-    def __init__(self):
-        self.heading: float = 0
-        self.position: List[float] = [0, 0]
-        self.speed: float = 0
-        self.angular_velocity: float = 0
-        self.moving: bool = False
 
-    def publish(self):
-        """Publishes the current object to MQTT."""
-        logging.debug("Publishing the current position and velocity.")
+class MQTTTopicImplementation(ABC):
+    """Base class to aid in the implementation of MQTT topics."""
+
+    def __init__(
+        self,
+        topic: MQTTTopics,
+        callback: Callable[[MQTTTopicImplementation], None] = None,
+    ) -> None:
+        """Initialises the topic.
+
+        Args:
+            topic (MQTTTopics): The topic to publish on or subscribe to.
+            callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+        """
+        self.topic = topic
+        self.callback = callback
+
+    @abstractmethod
+    def to_dict(self) -> dict:
+        """Formats the data as a dictionary inline with the MQTT topics database.
+
+        Returns:
+            dict: The data as a dictionary.
+        """
+        pass
+
+    def publish(self) -> None:
+        """Publishes the current data to MQTT."""
         publish_mqtt(
-            MQTTTopics.ODOMETRY_CURRENT,
-            {
-                "moving": self.moving,
-                "heading": self.heading,
-                "position": self.position,
-                "speed": self.speed,
-                "angular-velocity": self.angular_velocity,
-            },
+            self.topic,
+            self.to_dict(),
         )
 
-    def receive(self, args:dict):
+    @abstractmethod
+    def receive(self, args: dict) -> None:
+        """Receives a dictionary containing the arguments and updates the class variables.
+        Assume that the dictionary was created by this object's to_dict() method."""
+        if self.callback:
+            self.callback(self)
+
+    def topic_method_pair(self) -> TopicMethodPair:
+        """Returns the topic and method pair for this implementation of a topic."""
+        return TopicMethodPair(self.topic, self.receive)
+
+    def __repr__(self) -> str:
+        return json.dumps(f"MQTT topic '{self.topic}', '{self.to_dict()}'")
+
+
+class OdometryCurrent(MQTTTopicImplementation):
+    """Class for storing, transmitting and receiving the current odometry readings."""
+
+    def __init__(
+        self,
+        heading: float = 0,
+        position: Tuple[float, float] = (0, 0),
+        speed: float = 0,
+        angular_velocity: float = 0,
+        moving: bool = False,
+        turn_radius: float = 0,
+        callback: Callable[[MQTTTopicImplementation], None] = None,
+    ):
+        """Creates the status object.
+
+        All parameters are optional and default to 0 (or their equivalent.)
+
+        Args:
+            heading (float, optional): Heading in radians. Defaults to 0.
+            position (Tuple[float, float], optional): Position in m. Defaults to (0, 0).
+            speed (float, optional): Speed in m/s. Defaults to 0.
+            angular_velocity (float, optional): Angular velocity in rad/s. Defaults to 0.
+            moving (bool, optional): Whether the robot is moving. Defaults to False.
+            turn_radius (float, optional): The current turning radius in m. Defaults to 0.
+            callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+        """
+        super().__init__(MQTTTopics.ODOMETRY_CURRENT, callback)
+        self.heading = heading
+        self.position = position
+        self.speed = speed
+        self.angular_velocity = angular_velocity
+        self.moving = moving
+        self.turn_radius = turn_radius
+
+    def to_dict(self) -> dict:
+        """Represents the data as a dictionary.
+
+        Returns:
+            dict: The dictionary representation as given in the MQTT documentation.
+        """
+        return {
+            "moving": bool(self.moving),
+            "heading": self.heading,
+            "position": self.position,
+            "speed": self.speed,
+            "angular-velocity": self.angular_velocity,
+            "turn-radius": self.turn_radius,
+        }
+
+    def receive(self, args: dict):
         """Populates the object with a received object."""
         logging.debug("Receiving latest positions.")
         self.moving = args["moving"]
@@ -156,3 +234,80 @@ class OdometryCurrent:
         self.position = args["position"]
         self.speed = args["speed"]
         self.angular_velocity = args["angular-velocity"]
+        self.turn_radius = args["turn-radius"]
+
+        # Call the callback if needed.
+        super().receive(args)
+
+class MoveSpeed(MQTTTopicImplementation):
+    """MQTT topic to command the robot to move with a given speed."""
+
+    def __init__(
+        self,
+        angular_velocity: float = 0,
+        speed: float = 0,
+        callback: Callable[[MQTTTopicImplementation], None] = None,
+    ):
+        """Creates the move at speed object.
+
+        Args:
+            angular_velocity (float, optional): The current angular velocity of the robot rotating around the center of
+                                                the driven axle. When viewed from above, clockwise is positive. Defaults
+                                                to 0.
+            speed (float, optional): The speed in the linear direction. Positive is forwards, negative is backwards.
+                                     Defaults to 0.
+            callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+        """
+        super().__init__(MQTTTopics.ODOMETRY_MOVE_SPEED, callback)
+        self.angular_velocity = angular_velocity
+        self.speed = speed
+    
+    def to_dict(self) -> dict:
+        return {
+            "angular-velocity": self.angular_velocity,
+            "speed": self.speed
+        }
+    
+    def receive(self, args: dict) -> None:
+        self.angular_velocity = args["angular-velocity"]
+        self.speed = args["speed"]
+        return super().receive(args)
+
+class MovePosition(MQTTTopicImplementation):
+    """MQTT topic to command the robot to move with a given speed."""
+
+    def __init__(
+        self,
+        angular_velocity: float = 0,
+        speed: float = 0,
+        position: Tuple[float, float] = (0, 0),
+        callback: Callable[[MQTTTopicImplementation], None] = None,
+    ):
+        """Creates the move at speed object.
+
+        Args:
+            angular_velocity (float, optional): The current angular velocity of the robot rotating around the center of
+                                                the driven axle. When viewed from above, clockwise is positive. Defaults
+                                                to 0.
+            speed (float, optional): The speed in the linear direction. Positive is forwards, negative is backwards.
+                                     Defaults to 0.
+            position (Tuple[float, float], optional): Position in m. Defaults to (0, 0).
+            callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+        """
+        super().__init__(MQTTTopics.ODOMETRY_MOVE_POSITION, callback)
+        self.angular_velocity = angular_velocity
+        self.speed = speed
+        self.position = position
+    
+    def to_dict(self) -> dict:
+        return {
+            "angular-velocity": self.angular_velocity,
+            "speed": self.speed,
+            "position": self.position
+        }
+    
+    def receive(self, args: dict) -> None:
+        self.angular_velocity = args["angular-velocity"]
+        self.speed = args["speed"]
+        self.position = args["position"]
+        return super().receive(args)

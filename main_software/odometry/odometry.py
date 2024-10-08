@@ -17,8 +17,7 @@ from defines import (
     publish_mqtt,
     OdometryCurrent,
     MoveSpeed,
-    MovePosition,
-    OdometrySensors  
+    MovePosition  
 )
 
 # Logging
@@ -40,7 +39,6 @@ from enum import Enum
 from abc import ABC, abstractmethod
 import threading
 from sensors import main as sensors_main
-from datetime import datetime
 
 from motor_control import (
     MotorAccelerationController,
@@ -277,9 +275,24 @@ class PositionControl:
     def __init__(self):
         self.heading_distance = HeadingDistanceControl()
         self.target = (0, 0)
+        self.is_relative = False  # Flag to indicate if the target is relative or global
 
-    def set_target(self, coords: Tuple[float, float]) -> None:
+    def set_target(self, coords: Tuple[float, float], cur_pos: Tuple[float, float], cur_heading: float, is_relative: bool = False) -> None:
+        """
+        Sets the target position.
+        
+        Args:
+            coords (Tuple[float, float]): Target position (x, y).
+            is_relative (bool): Whether the target is relative to the current position or global.
+        """
         self.target = coords
+        self.is_relative = is_relative
+        if self.is_relative:
+            # Convert relative target to global target based on current position and heading
+            self.target = self.calculate_relative_target(cur_pos, cur_heading)
+        else:
+            # Use the target as a global position
+            self.target = self.target
 
     def set_speed(self, max_av: float, max_v: float) -> None:
         self.heading_distance.set_speed(max_av, max_v)
@@ -352,6 +365,30 @@ class PositionControl:
         )
         return target_heading, target_distance
 
+    def calculate_relative_target(
+        self, current_pos: Tuple[float, float], cur_heading: float
+    ) -> Tuple[float, float]:
+        """
+        Converts a relative target (with respect to current position and heading) to a global target.
+
+        Args:
+            current_pos (Tuple[float, float]): The current global (x, y) position.
+            cur_heading (float): The current heading in radians.
+
+        Returns:
+            Tuple[float, float]: The global target position.
+        """
+        # Convert relative target into global coordinates by adjusting for current heading
+        relative_x, relative_y = self.target
+        delta_x = relative_x * math.cos(cur_heading) - relative_y * math.sin(cur_heading)
+        delta_y = relative_x * math.sin(cur_heading) + relative_y * math.cos(cur_heading)
+
+        # Add the relative target to the current position
+        global_x = current_pos[0] + delta_x
+        global_y = current_pos[1] + delta_y
+
+        return global_x, global_y
+    
     def update(
         self, timestep: float, cur_pos: Tuple[float, float], cur_heading: float
     ) -> Tuple[float, float]:
@@ -360,11 +397,12 @@ class PositionControl:
         Args:
             timestep (float): The timestep from the last update.
             cur_pos (Tuple[float, float]): The current position relative to the start.
-            cur_heading (float): The curren heading.
+            cur_heading (float): The current heading.
 
         Returns:
             Tuple[float, float]: The new angular and linear velocities.
         """
+
         # Calculate the target heading and distance from where we are to the target.
         target_heading, target_distance = PositionControl.calculate_target_move(
             cur_pos, self.target
@@ -582,9 +620,6 @@ class Vehicle:
         )
         self.left.set_speed(left)
         self.right.set_speed(right)
-    
-    def mqtt_handle_sensors(self, sensor_data: OdometrySensors):
-        handle_line_detection(sensor_data.sensor, sensor_data.to_dict())
 
     def mqtt_move_speed(self, move_speed: MoveSpeed) -> None:
         """Commands the vehicle to move with a given speed.
@@ -596,7 +631,7 @@ class Vehicle:
         self.control_mode = MotorControlMode.SPEED
         self._move_speed(move_speed.angular_velocity, move_speed.speed)
 
-    def mqtt_move_position(self, move_position: MovePosition) -> None:
+    def mqtt_move_position(self, move_position: MovePosition, is_relative: bool = True) -> None:
         """Commands the vehicle to move to a specific position."""
         logging.debug(f"Got move to position command {move_position}")
         if self.control_mode == MotorControlMode.SPEED:
@@ -607,102 +642,12 @@ class Vehicle:
         self.position_controller.set_speed(
             move_position.angular_velocity, move_position.speed
         )
-        self.position_controller.set_target(move_position.position)
+
+        current_position = self.position.as_tuple() 
+        current_heading = self.position.heading 
+        
+        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=True)
         self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
-
-
-# Variables to store the line detection times
-left_sensor_time = None
-right_sensor_time = None
-
-def handle_line_detection(sensor: str, message: dict):
-    """Handles line detection from the left or right sensor.
-
-    Args:
-        sensor (str): 'left' or 'right' to indicate which sensor sent the message.
-        message (dict): The MQTT message containing the detection info.
-    """
-    global left_sensor_time, right_sensor_time
-
-    # Record the time of detection
-    detection_time = datetime.now()
-    
-    if sensor == 'left':
-        left_sensor_time = detection_time
-        logging.info(f"Left sensor detected line at {left_sensor_time}")
-    elif sensor == 'right':
-        right_sensor_time = detection_time
-        logging.info(f"Right sensor detected line at {right_sensor_time}")
-
-    # If both sensors have detected the line, calculate the angle and send the movement command
-    if left_sensor_time and right_sensor_time:
-        calculate_and_move_based_on_angle()
-
-def calculate_and_move_based_on_angle():
-    """Calculates the angle of the line and sends a movement command."""
-    global left_sensor_time, right_sensor_time
-
-    # Time difference in seconds
-    time_diff = (right_sensor_time - left_sensor_time).total_seconds()
-
-    # Calculate angle based on time difference and known sensor distance
-    angle = calculate_angle_from_time_difference(time_diff, sensor_distance=10, speed=100)  # Customize sensor_distance and speed
-
-    if time_diff > 0:
-        logging.info(f"Line is angled to the right by {angle} degrees")
-    else:
-        logging.info(f"Line is angled to the left by {-angle} degrees")
-
-    # Calculate the opposite angle to the line
-    opposite_angle = calculate_opposite_angle(angle)
-    logging.info(f"Turning to face inward opposite to the line: {opposite_angle} degrees")
-
-    # Send a move command to turn perpendicular to the line
-    send_move_command(distance=0, heading=opposite_angle) ####PLACEHOLDER
-    # Move forward 10 cm (0.1 meters)
-    logging.info("Moving forward 10 cm.")
-    send_move_command(distance=0.1, heading=opposite_angle)  # Move forward in the same direction ####PLACEHOLDER
-
-    # Reset the sensor times to avoid miscalculating from the wrong position
-    reset_detection_times()
-
-def reset_detection_times():
-    """Resets the line detection times."""
-    global left_sensor_time, right_sensor_time
-    left_sensor_time = None
-    right_sensor_time = None
-    logging.info("Resetting detection times.")
-
-def calculate_angle_from_time_difference(time_diff, sensor_distance, speed):
-    """Calculates the angle from time difference, sensor distance, and robot speed."""
-    import math
-    return math.degrees(math.atan((time_diff * speed) / sensor_distance))
-
-def calculate_opposite_angle(line_angle: float) -> float:
-    """Calculates the opposite angle of the line.
-
-    Args:
-        line_angle (float): The angle of the line in degrees.
-
-    Returns:
-        float: The opposite angle in degrees.
-    """
-    # Normalize angle to be within 0-360 degrees
-    opposite_angle = (line_angle + 180) % 360
-    return opposite_angle
-
-# New function to handle incoming sensor data
-def mqtt_handle_sensors(sensor_data: OdometrySensors):
-    """Handles incoming sensor data from the OdometrySensors class."""
-    global left_sensor_time, right_sensor_time
-
-    # Retrieve the latest detection times from the sensor data
-    left_sensor_time = sensor_data.latest_time_left
-    right_sensor_time = sensor_data.latest_time_right
-
-    # Check if both sensors have recorded detection times
-    if left_sensor_time and right_sensor_time:
-        calculate_and_move_based_on_angle()
 
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
@@ -712,7 +657,6 @@ def initialize_mqtt(vehicle: Vehicle):
     method_pairs = [
         MoveSpeed(callback=vehicle.mqtt_move_speed).topic_method_pair(),
         MovePosition(callback=vehicle.mqtt_move_position).topic_method_pair(),
-        OdometrySensors(callback=vehicle.mqtt_handle_sensors).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs
@@ -720,7 +664,6 @@ def initialize_mqtt(vehicle: Vehicle):
 
     # Start the MQTT client loop (use loop_start() if you want non-blocking behavior)
     mqtt_client.loop_forever()  # Use mqtt_client.loop_start() to not block.
-
 
 if __name__ == "__main__":
     # Main code to run.
@@ -730,8 +673,9 @@ if __name__ == "__main__":
     vehicle = Vehicle()
 
     #new thread for sensors
-    t = threading.Thread(target = sensors_main)
+    t = threading.Thread(target = sensors_main) ########
     t.start
+
     # Initialize MQTT with the vehicle instance
     initialize_mqtt(vehicle)
 

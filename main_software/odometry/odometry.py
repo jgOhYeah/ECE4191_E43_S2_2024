@@ -17,7 +17,8 @@ from defines import (
     publish_mqtt,
     OdometryCurrent,
     MoveSpeed,
-    MovePosition  
+    MovePosition,
+    BallLoadMsg,
 )
 
 # Logging
@@ -32,7 +33,7 @@ import json
 import logging
 import time
 import math
-from gpiozero import Motor, RotaryEncoder
+from gpiozero import Motor, RotaryEncoder, LED
 import threading
 from dataclasses import dataclass
 from enum import Enum
@@ -51,6 +52,7 @@ from motor_control import (
 )
 from digitalfilter import create_filter
 from kalman import PositionAccumulator, PositionAccumulatorLogged
+from ball_loading import ball_loader
 
 # Constants
 WHEEL_RADIUS = 0.027  # in meters
@@ -277,10 +279,16 @@ class PositionControl:
         self.target = (0, 0)
         self.is_relative = False  # Flag to indicate if the target is relative or global
 
-    def set_target(self, coords: Tuple[float, float], cur_pos: Tuple[float, float], cur_heading: float, is_relative: bool = False) -> None:
+    def set_target(
+        self,
+        coords: Tuple[float, float],
+        cur_pos: Tuple[float, float],
+        cur_heading: float,
+        is_relative: bool = False,
+    ) -> None:
         """
         Sets the target position.
-        
+
         Args:
             coords (Tuple[float, float]): Target position (x, y).
             is_relative (bool): Whether the target is relative to the current position or global.
@@ -380,15 +388,19 @@ class PositionControl:
         """
         # Convert relative target into global coordinates by adjusting for current heading
         relative_x, relative_y = self.target
-        delta_x = relative_x * math.cos(cur_heading) - relative_y * math.sin(cur_heading)
-        delta_y = relative_x * math.sin(cur_heading) + relative_y * math.cos(cur_heading)
+        delta_x = relative_x * math.cos(cur_heading) - relative_y * math.sin(
+            cur_heading
+        )
+        delta_y = relative_x * math.sin(cur_heading) + relative_y * math.cos(
+            cur_heading
+        )
 
         # Add the relative target to the current position
         global_x = current_pos[0] + delta_x
         global_y = current_pos[1] + delta_y
 
         return global_x, global_y
-    
+
     def update(
         self, timestep: float, cur_pos: Tuple[float, float], cur_heading: float
     ) -> Tuple[float, float]:
@@ -631,7 +643,9 @@ class Vehicle:
         self.control_mode = MotorControlMode.SPEED
         self._move_speed(move_speed.angular_velocity, move_speed.speed)
 
-    def mqtt_move_position(self, move_position: MovePosition, is_relative: bool = True) -> None:
+    def mqtt_move_position(
+        self, move_position: MovePosition, is_relative: bool = True
+    ) -> None:
         """Commands the vehicle to move to a specific position."""
         logging.debug(f"Got move to position command {move_position}")
         if self.control_mode == MotorControlMode.SPEED:
@@ -643,20 +657,48 @@ class Vehicle:
             move_position.angular_velocity, move_position.speed
         )
 
-        current_position = self.position.as_tuple() 
-        current_heading = self.position.heading 
+        current_position = self.position.as_tuple()
+        current_heading = self.position.heading
 
-        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=is_relative)
+        self.position_controller.set_target(
+            move_position.position,
+            current_position,
+            current_heading,
+            is_relative=is_relative,
+        )
         self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
+
+class LEDFlash:
+    def __init__(self, pin: int):
+        """Flashes an LED on callback.
+
+        Args:
+            pin (int): _description_
+        """
+        self.led = LED(pin)
+        self.led.on()
+
+    def get_topic_pair(self) -> TopicMethodPair:
+        return TopicMethodPair("#", self.flash)
+
+    def flash(self, args) -> None:
+        print("Hi")
+        logging.info("Flash")
+        self.led.blink(0.01, 1, None)
+        self.led.on()
+
+led = LEDFlash(17)
 # Function to encapsulate the MQTT setup
 def initialize_mqtt(vehicle: Vehicle):
     """Initializes MQTT and sets up the topic subscriptions and callbacks."""
 
     # Define callback methods paired with their corresponding MQTT topics
     method_pairs = [
+        # led.get_topic_pair(),
         MoveSpeed(callback=vehicle.mqtt_move_speed).topic_method_pair(),
         MovePosition(callback=vehicle.mqtt_move_position).topic_method_pair(),
+        BallLoadMsg(callback=ball_loader.receive_start).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs
@@ -665,6 +707,7 @@ def initialize_mqtt(vehicle: Vehicle):
     # Start the MQTT client loop (use loop_start() if you want non-blocking behavior)
     mqtt_client.loop_forever()  # Use mqtt_client.loop_start() to not block.
 
+
 if __name__ == "__main__":
     # Main code to run.
     setup_logging("log_odometry.txt", logging.DEBUG)
@@ -672,11 +715,9 @@ if __name__ == "__main__":
     # Create the vehicle instance
     vehicle = Vehicle()
 
-    #new thread for sensors
-    t = threading.Thread(target = sensors_main) ########
+    # new thread for sensors
+    t = threading.Thread(target=sensors_main)  ########
     t.start
 
     # Initialize MQTT with the vehicle instance
     initialize_mqtt(vehicle)
-
-

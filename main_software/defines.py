@@ -26,6 +26,10 @@ class MQTTTopics:
     ODOMETRY_STATUS = "/odometry/status"
     ODOMETRY_SENSORS = "/odometry/sensors"
 
+    # Ball loading
+    BALL_LOAD_START = "/ball/start"
+    BALL_LOAD_FINISH = "/ball/finish"
+
     # Stuff to do with the vision system.
     VISION_CONTACT = "/vision/contact"
     VISION_BALLS = "/vision/balls"
@@ -64,7 +68,7 @@ def _on_connect(
     """
     logging.info("MQTT connected")
     for tp in _topic_pairs:
-        logging.info(f"  - Subscribing to topic '{tp.topic}")
+        logging.info(f"  - Subscribing to topic '{tp.topic}' ({tp.method})")
         mqtt_client.subscribe(tp.topic)
 
 
@@ -372,3 +376,27 @@ class OdometrySensors(MQTTTopicImplementation):
 
         # Call the callback if needed.
         super().receive(args)
+
+class BallLoadMsg(MQTTTopicImplementation):
+    def __init__(self, ball_count:int = 0, callback=None):
+        super().__init__(MQTTTopics.BALL_LOAD_START, callback)
+        self.ball_count = ball_count
+
+    def to_dict(self) -> dict:
+        return {
+            "ball-count": self.ball_count,
+        }
+    
+    def receive(self, args):
+        self.ball_count = args["ball-count"]
+        return super().receive(args)
+    
+class BallLoadFinishMsg(MQTTTopicImplementation):
+    def __init__(self, callback=None):
+        super().__init__(MQTTTopics.BALL_LOAD_FINISH, callback)
+
+    def to_dict(self) -> dict:
+        return {}
+    
+    def receive(self, args):
+        return super().receive(args)

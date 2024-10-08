@@ -22,15 +22,31 @@ i2c1 = I2C(1)  # Use bus 1
 # Initialize the second I2C bus (i2c-3)
 i2c3 = I2C(3)  # Use bus 3
 
-# Initialize the sensors on the respective buses
-sensor_left = adafruit_tcs34725.TCS34725(i2c1)
-sensor_right = adafruit_tcs34725.TCS34725(i2c3)
+sensor_left = None
+sensor_right = None
 
-# Set integration time and gain for both sensors
-sensor_left.integration_time = 200
-sensor_left.gain = 60
-sensor_right.integration_time = 200
-sensor_right.gain = 60
+# Initialize the sensors on the respective buses
+def initialised_sensors() -> bool:
+    """Initialises the colour sensors.
+
+    Returns:
+        bool: True if both were initialised successfully, False otherwise.
+    """
+    global sensor_left
+    global sensor_right
+    try:
+        sensor_left = adafruit_tcs34725.TCS34725(i2c1)
+        sensor_right = adafruit_tcs34725.TCS34725(i2c3)
+    except ValueError:
+        logging.error("Could not initialise 1 or more colour sensors")
+        return False
+    else:
+        # Set integration time and gain for both sensors
+        sensor_left.integration_time = 200
+        sensor_left.gain = 60
+        sensor_right.integration_time = 200
+        sensor_right.gain = 60
+        return True
 
 # Function to detect color change
 def is_white(rgb, threshold=200):
@@ -70,4 +86,7 @@ def main():
 
 if __name__ == "__main__":
     setup_logging("log_sensors.txt", logging.DEBUG)
-    main()
+    if initialised_sensors():
+        main()
+    else:
+        logging.info("Not running the main loop as I can't talk to both colour sensors")

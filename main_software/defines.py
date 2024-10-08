@@ -283,6 +283,7 @@ class MovePosition(MQTTTopicImplementation):
         speed: float = 0,
         position: Tuple[float, float] = (0, 0),
         callback: Callable[[MQTTTopicImplementation], None] = None,
+        is_relative: bool = True
     ):
         """Creates the move at speed object.
 
@@ -294,6 +295,7 @@ class MovePosition(MQTTTopicImplementation):
                                      Defaults to 0.
             position (Tuple[float, float], optional): Position in m. Defaults to (0, 0).
             callback (Callable[[MQTTTopicImplementation], None], optional): Callback function to call when receive() is called. Defaults to None.
+            is_relative (bool, optional): Whether the position is relative or absolute. Defaults to True
         """
         super().__init__(MQTTTopics.ODOMETRY_MOVE_POSITION, callback)
         self.angular_velocity = angular_velocity
@@ -304,13 +306,15 @@ class MovePosition(MQTTTopicImplementation):
         return {
             "angular-velocity": self.angular_velocity,
             "speed": self.speed,
-            "position": self.position
+            "position": self.position,
+            "is_relative": self.is_relative 
         }
     
     def receive(self, args: dict) -> None:
         self.angular_velocity = args["angular-velocity"]
         self.speed = args["speed"]
         self.position = args["position"]
+        self.is_relative = args.get("is_relative", True)
         return super().receive(args)
 
 

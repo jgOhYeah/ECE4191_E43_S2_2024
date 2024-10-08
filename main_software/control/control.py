@@ -17,7 +17,9 @@ from defines import (
     mqtt_client,
     publish_mqtt,
     OdometryCurrent,
-    OdometrySensors
+    MoveSpeed,
+    OdometrySensors,
+    MovePosition
 )
 
 # Logging
@@ -41,6 +43,7 @@ import math
 
 odometry_current = OdometryCurrent()
 odometry_sensors = OdometrySensors()
+move_position = MovePosition()
 
 class ContactChecker:
     """Class for detecting if a contact has occurred based on distance."""
@@ -78,11 +81,15 @@ def send_move_command(distance: float, heading: float):
 
     Args:
         distance (float): The distance to move.
-        heading (float): The global heading to point at.
+        heading (float): The global heading to point at.  (rad)
     """
     global state
     odometry_current.moving = True # Pre-emptively mark as moving to avoid race conditions.
-    publish_mqtt(MQTTTopics.ODOMETRY_MOVE, {"distance": distance, "heading": heading})
+    new_x = distance * math.cos(heading)
+    new_y = distance * math.sin(heading)
+
+    move_position.position = (new_x, new_y)
+    move_position.publish()
 
 def score_ball(ball:dict):
     """Calculates a score to assign to a ball when picking one"""
@@ -234,13 +241,13 @@ def calculate_and_move_based_on_angle(left_sensor_time, right_sensor_time):
 
     # Determine whether to adjust for a left or right turn
     if time_diff > 0:
-        logging.info(f"Line is angled to the right by {angle} degrees")
+        logging.info(f"Line is angled to the right by {angle} rad")
     else:
-        logging.info(f"Line is angled to the left by {-angle} degrees")
+        logging.info(f"Line is angled to the left by {-angle} rad")
 
     # Calculate the opposite angle to turn the robot inwards
     opposite_angle = calculate_opposite_angle(angle)
-    logging.info(f"Turning to face inward opposite to the line: {opposite_angle} degrees")
+    logging.info(f"Turning to face inward opposite to the line: {opposite_angle} rad")
 
     # Send a movement command to turn to the opposite angle
     send_move_command(distance=0, heading=opposite_angle)
@@ -261,19 +268,19 @@ def reset_detection_times():
 def calculate_angle_from_time_difference(time_diff, sensor_distance, speed):
     """Calculates the angle from time difference, sensor distance, and robot speed."""
     import math
-    return math.degrees(math.atan((time_diff * speed) / sensor_distance))
+    return math.atan((time_diff * speed) / sensor_distance)
 
 def calculate_opposite_angle(line_angle: float) -> float:
     """Calculates the opposite angle of the line.
     
     Args:
-        line_angle (float): The angle of the line in degrees.
+        line_angle (float): The angle of the line in rad.
 
     Returns:
-        float: The opposite angle in degrees.
+        float: The opposite angle in rad.
     """
-    # Normalize the angle to be within 0-360 degrees
-    opposite_angle = (line_angle + 180) % 360
+    # Normalize the angle to be within 0-360 degrees (but in rad)
+    opposite_angle = (line_angle + math.pi) % (2 * math.pi)
     return opposite_angle
 
 def mqtt_handle_sensors(sensor_data: OdometrySensors):

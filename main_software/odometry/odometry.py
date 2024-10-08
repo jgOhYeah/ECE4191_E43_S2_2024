@@ -645,8 +645,8 @@ class Vehicle:
 
         current_position = self.position.as_tuple() 
         current_heading = self.position.heading 
-        
-        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=True)
+
+        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=is_relative)
         self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
 # Function to encapsulate the MQTT setup

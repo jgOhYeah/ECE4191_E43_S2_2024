@@ -26,10 +26,6 @@ i2c3 = I2C(3)  # Use bus 3
 sensor_left = adafruit_tcs34725.TCS34725(i2c1)
 sensor_right = adafruit_tcs34725.TCS34725(i2c3)
 
-# Initialize sensors
-sensor_left = adafruit_tcs34725.TCS34725(i2c1)
-sensor_right = adafruit_tcs34725.TCS34725(i2c3)
-
 # Set integration time and gain for both sensors
 sensor_left.integration_time = 200
 sensor_left.gain = 60

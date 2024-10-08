@@ -301,6 +301,7 @@ class MovePosition(MQTTTopicImplementation):
         self.angular_velocity = angular_velocity
         self.speed = speed
         self.position = position
+        self.is_relative = is_relative
     
     def to_dict(self) -> dict:
         return {

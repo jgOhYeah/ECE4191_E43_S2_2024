@@ -277,7 +277,7 @@ class PositionControl:
         self.target = (0, 0)
         self.is_relative = False  # Flag to indicate if the target is relative or global
 
-    def set_target(self, coords: Tuple[float, float], is_relative: bool = False) -> None:
+    def set_target(self, coords: Tuple[float, float], cur_pos: Tuple[float, float], cur_heading: float, is_relative: bool = False) -> None:
         """
         Sets the target position.
         
@@ -287,6 +287,12 @@ class PositionControl:
         """
         self.target = coords
         self.is_relative = is_relative
+        if self.is_relative:
+            # Convert relative target to global target based on current position and heading
+            self.target = self.calculate_relative_target(cur_pos, cur_heading)
+        else:
+            # Use the target as a global position
+            self.target = self.target
 
     def set_speed(self, max_av: float, max_v: float) -> None:
         self.heading_distance.set_speed(max_av, max_v)
@@ -391,21 +397,15 @@ class PositionControl:
         Args:
             timestep (float): The timestep from the last update.
             cur_pos (Tuple[float, float]): The current position relative to the start.
-            cur_heading (float): The curren heading.
+            cur_heading (float): The current heading.
 
         Returns:
             Tuple[float, float]: The new angular and linear velocities.
         """
-        if self.is_relative:
-            # Convert relative target to global target based on current position and heading
-            global_target = self.calculate_relative_target(cur_pos, cur_heading)
-        else:
-            # Use the target as a global position
-            global_target = self.target
 
         # Calculate the target heading and distance from where we are to the target.
         target_heading, target_distance = PositionControl.calculate_target_move(
-            cur_pos, global_target
+            cur_pos, self.target
         )
 
         # If we are facing the wrong direction, don't bother moving forwards until we are facing the correct way.
@@ -631,7 +631,7 @@ class Vehicle:
         self.control_mode = MotorControlMode.SPEED
         self._move_speed(move_speed.angular_velocity, move_speed.speed)
 
-    def mqtt_move_position(self, move_position: MovePosition, is_relative = True) -> None:
+    def mqtt_move_position(self, move_position: MovePosition, is_relative: bool = True) -> None:
         """Commands the vehicle to move to a specific position."""
         logging.debug(f"Got move to position command {move_position}")
         if self.control_mode == MotorControlMode.SPEED:
@@ -642,7 +642,11 @@ class Vehicle:
         self.position_controller.set_speed(
             move_position.angular_velocity, move_position.speed
         )
-        self.position_controller.set_target(move_position.position, is_relative=is_relative)
+
+        current_position = self.position.as_tuple() 
+        current_heading = self.position.heading 
+        
+        self.position_controller.set_target(move_position.position, current_position, current_heading, is_relative=True)
         self.last_position_update_count = 1000  # Force a new update. # TODO: Mutexes
 
 # Function to encapsulate the MQTT setup

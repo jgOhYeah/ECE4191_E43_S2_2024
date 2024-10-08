@@ -17,8 +17,7 @@ from defines import (
     publish_mqtt,
     OdometryCurrent,
     MoveSpeed,
-    MovePosition,
-    OdometrySensors  
+    MovePosition  
 )
 
 # Logging
@@ -581,9 +580,6 @@ class Vehicle:
         )
         self.left.set_speed(left)
         self.right.set_speed(right)
-    
-    def mqtt_handle_sensors(self, sensor_data: OdometrySensors):
-        handle_line_detection(sensor_data.sensor, sensor_data.to_dict())
 
     def mqtt_move_speed(self, move_speed: MoveSpeed) -> None:
         """Commands the vehicle to move with a given speed.
@@ -617,7 +613,6 @@ def initialize_mqtt(vehicle: Vehicle):
     method_pairs = [
         MoveSpeed(callback=vehicle.mqtt_move_speed).topic_method_pair(),
         MovePosition(callback=vehicle.mqtt_move_position).topic_method_pair(),
-        OdometrySensors(callback=vehicle.mqtt_handle_sensors).topic_method_pair(),
     ]
 
     # Setup MQTT with the defined topic-method pairs
@@ -625,7 +620,6 @@ def initialize_mqtt(vehicle: Vehicle):
 
     # Start the MQTT client loop (use loop_start() if you want non-blocking behavior)
     mqtt_client.loop_forever()  # Use mqtt_client.loop_start() to not block.
-
 
 if __name__ == "__main__":
     # Main code to run.

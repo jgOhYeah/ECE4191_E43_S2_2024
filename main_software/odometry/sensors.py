@@ -37,10 +37,10 @@ sensor_right.integration_time = 200
 sensor_right.gain = 60
 
 # Function to detect color change
-def is_white(rgb, threshold=240):
+def is_white(rgb, threshold=200):
     """Detect if the color is white by checking if RGB values are close to 255"""
     r, g, b = rgb
-    return r > threshold and g > threshold and b > threshold
+    return r > threshold and g > threshold
     # could also do just b < threshold to detect less amount of blue
 
 def main():

@@ -7,11 +7,13 @@ import threading
 import numpy as np
 import paho.mqtt.client as mqtt
 import json
-import signal
+# import signalpy
 import sys
 import psutil
 import os
-import atexit
+# import atexit
+from werkzeug.serving import make_server
+
 
 
 # Set the number of cores to use (leave one core free)
@@ -43,19 +45,27 @@ output_frame = None
 lock = threading.Lock()
 running = True  # Flag to control the threads
 detection_thread = None
-flask_thread = None
+# flask_thread = None
 cleanup_done = threading.Event()  # Add this line
 
 take_photo_event = threading.Event()
 
 
 # MQTT setup
-def on_message(client,userdata,msg):
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Connected to MQTT Broker!")
+        client.subscribe(command_topic)
+    else:
+        print(f"Failed to connect, return code {rc}")
+
+def on_message(client, userdata, msg):
+    print(f"Received message: {msg.payload.decode()} on topic {msg.topic}")
     payload = msg.payload.decode()
     if payload == 'take_photo':
         if not take_photo_event.is_set():
+            print("Setting take_photo_event")
             take_photo_event.set()
-
 
 mqtt_broker = "localhost"  # Replace with your MQTT broker IP or hostname
 mqtt_port = 1883
@@ -64,16 +74,18 @@ command_topic = "comp_vis/commands"
 status_topic = "comp_vis/status"
 
 client = mqtt.Client(protocol=mqtt.MQTTv311)
+client.on_connect = on_connect
 client.on_message = on_message
 client.connect(mqtt_broker, mqtt_port, 60)
-client.subscribe(command_topic)     #subscribe to command topic)
 client.loop_start()
 
 def publish_status(status_dict):
-    client.publish(status_topic, json.dumps(status_dict))
+    message = json.dumps(status_dict)
+    print(f"Publishing status: {message}")
+    client.publish(status_topic, message)
 
 def cleanup():
-    global running, detection_thread, flask_thread, picam2, client, app, take_photo_event
+    global running, detection_thread, server, picam2, client, app, take_photo_event
 
     if cleanup_done.is_set():
         return  # Cleanup has already been performed
@@ -87,8 +99,10 @@ def cleanup():
         print("Waiting for detection thread to finish")
         detection_thread.join(timeout=5)
     
-    if flask_thread and flask_thread.is_alive():
+    if server and server.is_alive():
         print("Flask thread is still running")
+        server.shutdown()
+        server.join(timeout=5)
         # Flask server will be terminated when the process exits
 
     if picam2:
@@ -106,13 +120,32 @@ def cleanup():
 
 
 
-def signal_handler(sig, frame):
-    print("Interrupt received, stopping...")
-    cleanup()
-    sys.exit(0)
+# def signal_handler(sig, frame):
+#     print("Interrupt received, stopping...")
+#     cleanup()
+#     sys.exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGTERM, signal_handler)
+
+class ServerThread(threading.Thread):
+
+    def __init__(self, app):
+        threading.Thread.__init__(self)
+        self.server = make_server('0.0.0.0', 5000, app)
+        self.ctx = app.app_context()
+        self.ctx.push()
+
+    def run(self):
+        print('Starting Flask server')
+        self.server.serve_forever()
+
+    def shutdown(self):
+        print('Shutting down Flask server')
+        self.server.shutdown()
+
+
+
 
 
 def detect_objects():
@@ -159,7 +192,7 @@ def detect_objects():
                     x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box coordinates
                     cls = int(box.cls[0])  # Class ID
                     conf = float(box.conf[0])  # Confidence score
-                    if conf > 0.4:
+                    if conf > 0.6:
                         # Calculate center coordinates
                         x_center = x1 + (x2 - x1) / 2
                         y_center = y1 + (y2 - y1) / 2
@@ -217,8 +250,8 @@ def detect_objects():
 
     
 
-def flask_run():
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
+# def flask_run():
+#     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
 
 def generate_frames():
     global output_frame, lock, running
@@ -254,8 +287,8 @@ if __name__ == '__main__':
         detection_thread.start()
         print("Detection thread started")
 
-        flask_thread = threading.Thread(target=flask_run, name="FlaskThread")
-        flask_thread.start()
+        server = ServerThread(app)
+        server.start()
         print("Flask thread started")
 
         while running:
@@ -266,5 +299,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Unexpected error: {e}")
         cleanup()
-    finally:
-        sys.exit(0)  # Ensure the script exits
+    

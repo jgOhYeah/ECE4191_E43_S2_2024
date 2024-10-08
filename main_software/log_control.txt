@@ -1,0 +1,254 @@
+2024-08-22 13:31:26,973 DEBUG: Setting up MQTT
+2024-08-22 13:31:40,338 DEBUG: Setting up MQTT
+2024-08-22 13:32:58,415 DEBUG: Setting up MQTT
+2024-08-22 13:33:11,428 DEBUG: Setting up MQTT
+2024-08-22 13:33:11,430 INFO: MQTT connected
+2024-08-22 13:33:11,430 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:33:11,430 INFO:   - Subscribing to topic '('/vision/contact',)
+2024-08-22 13:34:58,181 DEBUG: Setting up MQTT
+2024-08-22 13:34:58,184 INFO: MQTT connected
+2024-08-22 13:34:58,184 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:34:58,184 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:35:27,079 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:35:27,079 DEBUG:   - Found, about to call method
+2024-08-22 13:35:27,080 DEBUG: Received a handle balls message
+2024-08-22 13:35:27,080 DEBUG: []
+2024-08-22 13:35:31,875 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:35:31,875 DEBUG:   - Found, about to call method
+2024-08-22 13:39:55,370 DEBUG: Setting up MQTT
+2024-08-22 13:39:55,373 INFO: MQTT connected
+2024-08-22 13:39:55,373 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:39:55,373 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:40:03,471 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:40:03,471 DEBUG:   - Found, about to call method
+2024-08-22 13:40:03,471 WARNING: Could not decode message 'b'[sgds]''
+2024-08-22 13:40:44,839 DEBUG: Setting up MQTT
+2024-08-22 13:40:44,841 INFO: MQTT connected
+2024-08-22 13:40:44,841 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:40:44,841 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:40:47,935 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:40:47,935 DEBUG:   - Found, about to call method
+2024-08-22 13:40:47,935 WARNING:   - Could not decode message 'b'[sgds]''
+2024-08-22 13:40:59,846 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:40:59,846 DEBUG:   - Found, about to call method
+2024-08-22 13:40:59,846 DEBUG: Received a handle balls message
+2024-08-22 13:40:59,847 DEBUG: [{}]
+2024-08-22 13:41:14,707 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:41:14,707 DEBUG:   - Found, about to call method
+2024-08-22 13:41:14,707 DEBUG: Received a handle balls message
+2024-08-22 13:41:14,707 DEBUG: [{'speed': 12.3}]
+2024-08-22 13:45:49,581 DEBUG: Setting up MQTT
+2024-08-22 13:45:49,584 INFO: MQTT connected
+2024-08-22 13:45:49,584 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:45:49,584 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:46:21,007 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:46:21,007 DEBUG:   - Found, about to call method
+2024-08-22 13:46:21,007 DEBUG: Received a handle balls message
+2024-08-22 13:46:21,007 DEBUG: [{'speed': 12.3}]
+2024-08-22 13:46:37,310 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:46:37,311 DEBUG:   - Found, about to call method
+2024-08-22 13:46:37,311 WARNING:   - Could not decode message 'b'sgdtufhfdtdtur]''
+2024-08-22 13:58:51,880 DEBUG: Setting up MQTT
+2024-08-22 13:58:51,882 INFO: MQTT connected
+2024-08-22 13:58:51,882 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:58:51,882 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:59:54,447 DEBUG: Setting up MQTT
+2024-08-22 13:59:54,449 INFO: MQTT connected
+2024-08-22 13:59:54,449 INFO:   - Subscribing to topic '/vision/balls
+2024-08-22 13:59:54,449 INFO:   - Subscribing to topic '/vision/contact
+2024-08-22 13:59:57,718 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 13:59:57,719 DEBUG:   - Found, about to call method
+2024-08-22 13:59:57,719 WARNING:   - Could not decode message 'b'sgdtufhfdtdtur]''
+2024-08-22 14:00:02,667 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 14:00:02,667 DEBUG:   - Found, about to call method
+2024-08-22 14:00:02,667 DEBUG: Received a handle balls message
+2024-08-22 14:00:02,668 DEBUG: []
+2024-08-22 14:00:09,338 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 14:00:09,338 DEBUG:   - Found, about to call method
+2024-08-22 14:00:09,339 DEBUG: Received a handle balls message
+2024-08-22 14:00:09,339 DEBUG: []
+2024-08-22 14:00:11,011 DEBUG: Received message on topic '/vision/balls'
+2024-08-22 14:00:11,011 DEBUG:   - Found, about to call method
+2024-08-22 14:00:11,011 DEBUG: Received a handle balls message
+2024-08-22 14:00:11,011 DEBUG: []
+2024-08-22 14:00:17,410 DEBUG: Received message on topic '/vision/contact'
+2024-08-22 14:00:17,410 DEBUG:   - Found, about to call method
+2024-08-22 14:00:17,410 DEBUG: Received a contact message
+2024-08-22 14:00:17,410 DEBUG: []
+2024-08-22 14:00:19,051 DEBUG: Received message on topic '/vision/contact'
+2024-08-22 14:00:19,052 DEBUG:   - Found, about to call method
+2024-08-22 14:00:19,052 DEBUG: Received a contact message
+2024-08-22 14:00:19,052 DEBUG: []
+2024-08-22 14:00:37,829 DEBUG: Received message on topic '/vision/contact'
+2024-08-22 14:00:37,830 DEBUG:   - Found, about to call method
+2024-08-22 14:00:37,830 DEBUG: Received a contact message
+2024-08-22 14:00:37,830 DEBUG: []
+2024-08-23 01:59:01,315 DEBUG: Setting up MQTT
+2024-08-23 01:59:01,317 INFO: MQTT connected
+2024-08-23 01:59:01,317 INFO:   - Subscribing to topic '/vision/balls
+2024-08-23 01:59:01,317 INFO:   - Subscribing to topic '/vision/contact
+2024-08-23 01:59:01,317 INFO:   - Subscribing to topic '/odometry/current
+2024-08-23 02:00:32,194 DEBUG: Setting up MQTT
+2024-08-23 02:00:32,195 INFO: MQTT connected
+2024-08-23 02:00:32,195 INFO:   - Subscribing to topic '/vision/balls
+2024-08-23 02:00:32,195 INFO:   - Subscribing to topic '/vision/contact
+2024-08-23 02:00:32,195 INFO:   - Subscribing to topic '/odometry/current
+2024-08-23 02:02:32,514 DEBUG: Received message on topic '/vision/contact'
+2024-08-23 02:02:32,514 DEBUG:   - Found, about to call method
+2024-08-23 02:02:32,514 DEBUG: Received a contact message
+2024-08-23 02:02:32,514 DEBUG: []
+2024-08-23 02:02:32,514 DEBUG: Publishing on topic '/odometry/go-home'. Payload '{}'
+2024-08-23 02:02:48,350 DEBUG: Setting up MQTT
+2024-08-23 02:02:48,352 INFO: MQTT connected
+2024-08-23 02:02:48,352 INFO:   - Subscribing to topic '/vision/balls
+2024-08-23 02:02:48,352 INFO:   - Subscribing to topic '/vision/contact
+2024-08-23 02:02:48,352 INFO:   - Subscribing to topic '/odometry/current
+2024-08-23 02:03:02,213 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:03:02,213 DEBUG:   - Found, about to call method
+2024-08-23 02:03:02,213 DEBUG: Received a handle balls message
+2024-08-23 02:03:02,213 DEBUG: []
+2024-08-23 02:03:02,214 DEBUG: <class 'list'>
+2024-08-23 02:13:33,526 DEBUG: Setting up MQTT
+2024-08-23 02:13:33,528 INFO: MQTT connected
+2024-08-23 02:13:33,528 INFO:   - Subscribing to topic '/vision/balls
+2024-08-23 02:13:33,528 INFO:   - Subscribing to topic '/vision/contact
+2024-08-23 02:13:33,528 INFO:   - Subscribing to topic '/odometry/current
+2024-08-23 02:13:37,108 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:13:37,108 DEBUG:   - Found, about to call method
+2024-08-23 02:13:37,108 DEBUG: Received a handle balls message
+2024-08-23 02:13:37,108 DEBUG: []
+2024-08-23 02:13:37,109 DEBUG: <class 'list'>
+2024-08-23 02:15:17,188 DEBUG: Setting up MQTT
+2024-08-23 02:15:17,189 INFO: MQTT connected
+2024-08-23 02:15:17,190 INFO:   - Subscribing to topic '/vision/balls
+2024-08-23 02:15:17,190 INFO:   - Subscribing to topic '/vision/contact
+2024-08-23 02:15:17,190 INFO:   - Subscribing to topic '/odometry/current
+2024-08-23 02:15:20,954 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:20,954 DEBUG:   - Found, about to call method
+2024-08-23 02:15:20,954 DEBUG: Received a handle balls message
+2024-08-23 02:15:20,954 DEBUG: []
+2024-08-23 02:15:20,954 DEBUG: <class 'list'>
+2024-08-23 02:15:20,954 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:27,978 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:27,978 DEBUG:   - Found, about to call method
+2024-08-23 02:15:27,978 DEBUG: Received a handle balls message
+2024-08-23 02:15:27,978 DEBUG: []
+2024-08-23 02:15:27,978 DEBUG: <class 'list'>
+2024-08-23 02:15:27,978 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:28,951 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:28,952 DEBUG:   - Found, about to call method
+2024-08-23 02:15:28,952 DEBUG: Received a handle balls message
+2024-08-23 02:15:28,952 DEBUG: []
+2024-08-23 02:15:28,952 DEBUG: <class 'list'>
+2024-08-23 02:15:28,952 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:29,626 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:29,626 DEBUG:   - Found, about to call method
+2024-08-23 02:15:29,626 DEBUG: Received a handle balls message
+2024-08-23 02:15:29,626 DEBUG: []
+2024-08-23 02:15:29,626 DEBUG: <class 'list'>
+2024-08-23 02:15:29,627 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:30,177 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:30,178 DEBUG:   - Found, about to call method
+2024-08-23 02:15:30,178 DEBUG: Received a handle balls message
+2024-08-23 02:15:30,178 DEBUG: []
+2024-08-23 02:15:30,178 DEBUG: <class 'list'>
+2024-08-23 02:15:30,178 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:30,673 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:30,673 DEBUG:   - Found, about to call method
+2024-08-23 02:15:30,673 DEBUG: Received a handle balls message
+2024-08-23 02:15:30,673 DEBUG: []
+2024-08-23 02:15:30,673 DEBUG: <class 'list'>
+2024-08-23 02:15:30,674 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:31,122 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:31,122 DEBUG:   - Found, about to call method
+2024-08-23 02:15:31,122 DEBUG: Received a handle balls message
+2024-08-23 02:15:31,122 DEBUG: []
+2024-08-23 02:15:31,122 DEBUG: <class 'list'>
+2024-08-23 02:15:31,122 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:31,529 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:31,529 DEBUG:   - Found, about to call method
+2024-08-23 02:15:31,529 DEBUG: Received a handle balls message
+2024-08-23 02:15:31,529 DEBUG: []
+2024-08-23 02:15:31,529 DEBUG: <class 'list'>
+2024-08-23 02:15:31,530 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:31,900 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:31,900 DEBUG:   - Found, about to call method
+2024-08-23 02:15:31,900 DEBUG: Received a handle balls message
+2024-08-23 02:15:31,900 DEBUG: []
+2024-08-23 02:15:31,900 DEBUG: <class 'list'>
+2024-08-23 02:15:31,900 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:32,282 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:32,282 DEBUG:   - Found, about to call method
+2024-08-23 02:15:32,282 DEBUG: Received a handle balls message
+2024-08-23 02:15:32,282 DEBUG: []
+2024-08-23 02:15:32,282 DEBUG: <class 'list'>
+2024-08-23 02:15:32,282 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:32,657 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:32,657 DEBUG:   - Found, about to call method
+2024-08-23 02:15:32,657 DEBUG: Received a handle balls message
+2024-08-23 02:15:32,657 DEBUG: []
+2024-08-23 02:15:32,657 DEBUG: <class 'list'>
+2024-08-23 02:15:32,657 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:33,029 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:33,029 DEBUG:   - Found, about to call method
+2024-08-23 02:15:33,029 DEBUG: Received a handle balls message
+2024-08-23 02:15:33,029 DEBUG: []
+2024-08-23 02:15:33,029 DEBUG: <class 'list'>
+2024-08-23 02:15:33,030 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:33,444 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:33,444 DEBUG:   - Found, about to call method
+2024-08-23 02:15:33,444 DEBUG: Received a handle balls message
+2024-08-23 02:15:33,444 DEBUG: []
+2024-08-23 02:15:33,444 DEBUG: <class 'list'>
+2024-08-23 02:15:33,444 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:33,837 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:33,837 DEBUG:   - Found, about to call method
+2024-08-23 02:15:33,837 DEBUG: Received a handle balls message
+2024-08-23 02:15:33,837 DEBUG: []
+2024-08-23 02:15:33,837 DEBUG: <class 'list'>
+2024-08-23 02:15:33,837 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:34,285 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:34,286 DEBUG:   - Found, about to call method
+2024-08-23 02:15:34,286 DEBUG: Received a handle balls message
+2024-08-23 02:15:34,286 DEBUG: []
+2024-08-23 02:15:34,286 DEBUG: <class 'list'>
+2024-08-23 02:15:34,286 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:34,705 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:34,705 DEBUG:   - Found, about to call method
+2024-08-23 02:15:34,705 DEBUG: Received a handle balls message
+2024-08-23 02:15:34,706 DEBUG: []
+2024-08-23 02:15:34,706 DEBUG: <class 'list'>
+2024-08-23 02:15:34,706 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:15:35,379 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:15:35,379 DEBUG:   - Found, about to call method
+2024-08-23 02:15:35,379 DEBUG: Received a handle balls message
+2024-08-23 02:15:35,379 DEBUG: []
+2024-08-23 02:15:35,379 DEBUG: <class 'list'>
+2024-08-23 02:15:35,379 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 0.7853981633974483}'
+2024-08-23 02:17:28,401 DEBUG: Received message on topic '/odometry/current'
+2024-08-23 02:17:28,402 DEBUG:   - Found, about to call method
+2024-08-23 02:17:28,402 WARNING:   - Could not decode message 'b'{"heading": 2, "position": [4, 5], "speed": 0.5, "angular-velocity": 0}"\n''
+2024-08-23 02:17:42,534 DEBUG: Received message on topic '/odometry/current'
+2024-08-23 02:17:42,535 DEBUG:   - Found, about to call method
+2024-08-23 02:17:42,535 DEBUG: Receiving latest positions.
+2024-08-23 02:18:08,533 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:18:08,533 DEBUG:   - Found, about to call method
+2024-08-23 02:18:08,533 DEBUG: Received a handle balls message
+2024-08-23 02:18:08,533 DEBUG: []
+2024-08-23 02:18:08,533 DEBUG: <class 'list'>
+2024-08-23 02:18:08,533 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 2.7853981633974483}'
+2024-08-23 02:18:12,027 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:18:12,027 DEBUG:   - Found, about to call method
+2024-08-23 02:18:12,027 DEBUG: Received a handle balls message
+2024-08-23 02:18:12,027 DEBUG: []
+2024-08-23 02:18:12,027 DEBUG: <class 'list'>
+2024-08-23 02:18:12,027 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 2.7853981633974483}'
+2024-08-23 02:18:15,382 DEBUG: Received message on topic '/odometry/current'
+2024-08-23 02:18:15,382 DEBUG:   - Found, about to call method
+2024-08-23 02:18:15,383 DEBUG: Receiving latest positions.
+2024-08-23 02:18:17,127 DEBUG: Received message on topic '/vision/balls'
+2024-08-23 02:18:17,128 DEBUG:   - Found, about to call method
+2024-08-23 02:18:17,128 DEBUG: Received a handle balls message
+2024-08-23 02:18:17,128 DEBUG: []
+2024-08-23 02:18:17,128 DEBUG: <class 'list'>
+2024-08-23 02:18:17,128 DEBUG: Publishing on topic '/odometry/move'. Payload '{"speed": 0, "heading": 2.7853981633974483}'

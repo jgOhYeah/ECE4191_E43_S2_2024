@@ -29,7 +29,8 @@ cv2.setNumThreads(num_cores)
 app = Flask(__name__)
 
 # Load the YOLOv8 model
-model = YOLO('/home/tennis/ECE4191_G43_S2_2024/CV/saved_models/yolov8n/best_quantized_full.pt')
+#model = YOLO('/home/tennis/ECE4191_G43_S2_2024/CV/saved_models/yolov8n/best_saved_model/best.pt')
+model = YOLO('/home/tennis/ECE4191_G43_S2_2024/CV/saved_models/yolov8n/best.torchscript')
 
 # Initialize the Raspberry Pi Camera
 picam2 = Picamera2()

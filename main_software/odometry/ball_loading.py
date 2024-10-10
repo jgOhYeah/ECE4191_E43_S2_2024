@@ -4,6 +4,7 @@ from defines import (
     BallLoadFinishMsg,
     setup_logging
 )
+from threading import Thread
 import logging
 import time
 from gpiozero import DigitalOutputDevice, Button
@@ -13,30 +14,34 @@ class BallLoader:
         self.motor = DigitalOutputDevice(motor_pin)
         self.switch = Button(switch_pin, pull_up=None, active_state=False) # Built in debouncing doesn't work when the motor is on for some reason.
         self.switch.when_pressed = self.turn_off
-        self.activations = 0
+        # self.activations = 0
         # self.motor.on()
         # time.sleep(1)
         # self.motor.off()
-        self.prev_time = time.time()
+        # self.prev_time = time.time()
+        t = Thread(target=self.turn_off)
+        t.start()
+
 
 
     def turn_off(self) -> None:
         """If the target number of steps have been reached, turns the motor off.
         """
         # Calculate how long since the last successful press. This must have been at least 0.1s
-        cur_time = time.time()
-        timestep = cur_time - self.prev_time
-        if timestep > 1:
-            # It has been sufficiently long since the button was last pressed.
+        # cur_time = time.time()
+        # timestep = cur_time - self.prev_time
+        # if timestep > 1:
+        #     # It has been sufficiently long since the button was last pressed.
 
-            self.prev_time = cur_time
-            self.activations -= 1
-            logging.info(f"{self.activations} activations remaining")
-            
-            if self.activations <= 0:
-                self.motor.off()
-                logging.info("Turning off ball loading motor")
-                BallLoadFinishMsg().publish()
+        # self.prev_time = cur_time
+        # self.activations -= 1
+        time.sleep(1)
+        #logging.info(f"{self.activations} activations remaining")
+        
+        #if self.activations <= 0:
+        self.motor.off()
+        logging.info("Turning off ball loading motor")
+        BallLoadFinishMsg().publish()
     
     def turn_on(self, steps:int) -> None:
         """Turns the motor on and waits for a given number of steps to pass.

@@ -56,7 +56,7 @@ from ball_loading import ball_loader
 
 # Constants
 WHEEL_RADIUS = 0.027  # in meters
-WHEEL_BASE = 3.05 * 0.222  # distance between wheels in meters
+WHEEL_BASE = 0.222  # distance between wheels in meters
 TICKS_PER_REVOLUTION = 19 * 47  #
 MAX_MOTOR_SPEED = 1700  # Max speed in ticks per second.
 

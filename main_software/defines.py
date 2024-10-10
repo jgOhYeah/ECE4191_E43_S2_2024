@@ -11,6 +11,7 @@ import json
 from abc import ABC, abstractmethod
 
 MQTT_HOST = "localhost"
+# MQTT_HOST = "tennisbot.local"
 
 
 class MQTTTopics:
@@ -32,7 +33,7 @@ class MQTTTopics:
 
     # Stuff to do with the vision system.
     VISION_CONTACT = "/vision/contact"
-    VISION_BALLS = "/vision/balls"
+    VISION_BALLS = "comp_vis/balls"
     VISION_BOUNDARIES = "/vision/boundaries"
 
     # Status

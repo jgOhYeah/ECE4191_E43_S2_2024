@@ -99,8 +99,8 @@ def score_ball(ball:dict):
     weight_confidence = 0.1
 
     # Parameters measured
-    dist_to_centre = abs(ball["center point"][0])
-    distance = ball["distance"]
+    dist_to_centre = abs(ball["center-point"][0])
+    distance = 0
     confidence = ball["confidence"]/100
     return weight_centre * dist_to_centre + weight_dist * distance + weight_confidence * confidence
 
@@ -130,14 +130,14 @@ def rotate_to_ball(ball:dict):
     # # TODO: Work out correct camera field of view / angles?
     # current = odometry_current.heading
     # return current + (ball["coords"][0] * math.pi/4)
-    angle_scale = 0.5 # Edge of the frame is approximately this many radians.
+    angle_scale = 0.03 # Edge of the frame is approximately this many radians.
     distance_scale = 1 # Rotate smaller ammounts the closer we get.
-    return ball["center point"][0] * angle_scale * min(ball["distance"] * distance_scale, 1)
+    return ball["center-point"][0] * angle_scale # * min(ball["distance"] * distance_scale, 1)
     
 def rotate_heading() -> float:
     """Calculates the new heading to rotate to find a ball."""
     # TODO: Camera field of view?
-    return 5*math.pi/180
+    return 2*math.pi/180
 
 def step_distance(ball:dict) -> float:
     """Calculates the distance to move each time. Use this in conjunction with rotate_to_ball.
@@ -151,17 +151,17 @@ def step_distance(ball:dict) -> float:
     weight_sideways = 0.4 # Move less distance if the ball is on the edge of frame (1 = act more on this).
     weight_confidence = 0.3 # Move less distance if the confidence is low (1 = act more on this).
     min_movement = 0.01 # Minimum distance to move in m.
-    max_movement = 0.4 # Maximum distance to move in m.
-    distance_scale = 0.5 # What fraction of the calculated distance to the ball we should use.
+    max_movement = 0.2 # Maximum distance to move in m.
+    distance_scale = 0.1 # What fraction of the calculated distance to the ball we should use.
 
     # Parameters measured
-    dist_to_centre = abs(ball["center point"][0])
-    distance = ball["distance"]
+    dist_to_centre = abs(ball["center-point"][0])
+    # distance = ball["distance"]
     confidence = ball["confidence"]/100
 
     scalar = distance_scale * (1 - weight_sideways * dist_to_centre) * (1 - weight_confidence * confidence)
-    calc_dist = scalar * distance
-    return min(max(min_movement, calc_dist), max_movement)
+    # calc_dist = scalar * distance
+    return min(max(min_movement, scalar), max_movement)
 
 
 def handle_contact(args: dict):
@@ -190,23 +190,34 @@ def handle_balls(args: List):
         # Pick a ball from the frame
         if len(args) > 0:
             # We have at least one ball to choose from.
+            # Add the normalised coordinates back.
+            nargs = []
+            for a in args:
+                a["center-point"] = [2*(a["coords"][0] / 1919) - 1, 0]
+            #     if a["category"] == "ball":
+            #         nargs.append(a)
+            
+            # args = nargs
+            
+            # Select a ball to chase.
             ball = pick_ball(args)
             logging.debug(f"Picked a ball {ball}")
             publish_mqtt(MQTTTopics.STATUS, {"state": "ball found"})
-            if not contact.update(ball["distance"]) and not odometry_current.moving:
-                dist = step_distance(ball)
-                head = rotate_to_ball(ball)
-                logging.debug(f"Moving towards ball {dist=}, {head=}")
-                send_move_command(dist, head)
+
+            lv = -step_distance(ball)
+            av = rotate_to_ball(ball)
+            MoveSpeed(av, lv).publish()
+            # contact.update(ball)
         
         elif not odometry_current.moving:
             # Not moving, but can't find ball.
             logging.debug("Can't find a ball and not moving")
             publish_mqtt(MQTTTopics.STATUS, {"state": "no balls, moving"})
-            send_move_command(0, rotate_heading())
+            MoveSpeed(0.1, 0).publish()
         else:
             publish_mqtt(MQTTTopics.STATUS, {"state": "no balls, currently moving"})
             logging.debug("No balls, currently moving")
+            MoveSpeed(0.1, 0.01).publish()
     else:
         logging.debug("Going home, don't need to handle balls.")
 

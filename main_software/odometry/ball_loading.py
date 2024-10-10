@@ -19,8 +19,6 @@ class BallLoader:
         # time.sleep(1)
         # self.motor.off()
         # self.prev_time = time.time()
-        t = Thread(target=self.turn_off)
-        t.start()
 
 
 
@@ -49,9 +47,11 @@ class BallLoader:
         Args:
             steps (int): The number of steps.
         """
-        self.activations = steps
+        # self.activations = steps
         self.motor.on()
         logging.info("Turning on ball loading motor")
+        t = Thread(target=self.turn_off)
+        t.start()
 
     def receive_start(self, msg:BallLoadMsg) -> None:
         self.turn_on(msg.ball_count)

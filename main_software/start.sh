@@ -59,7 +59,7 @@ cd "$cwd/../CV"
 # Adjust the CPU core numbers (e.g., 0,1,2) based on your system's available cores.
 
 # Assign the CV process to use specific CPU cores (e.g., cores 2 and 3) and lower its priority.
-nice -n 10 taskset -c 2,3 $cv_env_py YOLO_detect_singlethread.py
+nice -n 10 taskset -c 1,2,3 $cv_env_py YOLO_detect_singlethread.py
 
 # Wait for all background processes to finish.
 wait
